@@ -1,36 +1,58 @@
-# .github/workflows/build-apk.yml — Stronghold 3 Android Wrapper (auto-generated)
-# Automatically compiles Stronghold3-Wrapper.apk whenever code is pushed.
-# Output: debug-signed APK attached as an artifact, and to the release if a tag is pushed.
-name: Build Stronghold 3 APK
+name: Build Stronghold 3 Wrapper APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [main, master]
+    tags: ['v*']
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-24.04
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin'
-        java-version: '17'
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
-    - name: Make Gradle executable
-      run: chmod +x gradlew
+      - name: Set up Gradle 8.0.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.0.2'
 
-    - name: Build APK with Gradle
-      run: ./gradlew assembleDebug
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-    - name: Upload APK Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: Stronghold3-Wrapper-APK
-        path: app/build/outputs/apk/debug/app-debug.apk
+      - name: Create debug keystore
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -dname "CN=Android Debug,O=Android,C=US" \
+              -keyalg RSA -keysize 2048 -validity 10000
+          fi
 
+      - name: Verify Gradle
+        run: gradle --version
 
+      - name: Build APK
+        run: gradle assembleRelease --no-daemon
+
+      - name: Rename APK
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk Stronghold3-Wrapper.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Stronghold3-Wrapper-APK
+          path: Stronghold3-Wrapper.apk
