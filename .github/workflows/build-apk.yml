@@ -1,0 +1,51 @@
+# .github/workflows/build-apk.yml — Stronghold 3 Android Wrapper (auto-generated)
+# Automatically compiles Stronghold3-Wrapper.apk whenever code is pushed.
+# Output: debug-signed APK attached as an artifact, and to the release if a tag is pushed.
+
+name: Build Stronghold 3 Wrapper APK
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant execute permission to gradlew
+        run: chmod +x ./gradlew
+
+      - name: Build release APK
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Rename APK
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk Stronghold3-Wrapper.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Stronghold3-Wrapper-apk
+          path: Stronghold3-Wrapper.apk
+
+      - name: Attach to release (on tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: Stronghold3-Wrapper.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

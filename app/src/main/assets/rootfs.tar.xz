@@ -1,0 +1,3 @@
+PLACEHOLDER — replace with a real rootfs (Box86/Box64 + Wine 32-bit + DXVK 1.10.3).
+You can pull one from an existing Generals Zero Hour / Stronghold Crusader port APK
+using scripts/extract_rootfs_from_port.sh on the device.

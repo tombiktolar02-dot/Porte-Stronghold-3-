@@ -1,0 +1,3 @@
+// settings.gradle — Stronghold 3 Android Wrapper (auto-generated)
+rootProject.name = "Stronghold3Wrapper"
+include ':app'
