@@ -10,6 +10,7 @@
 #include <sstream>
 #include <vector>
 #include <unordered_map>
+#include <map>
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "SH3_BRIDGE", __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "SH3_BRIDGE", __VA_ARGS__)
@@ -114,6 +115,7 @@ static std::vector<LoadedModule> g_modules;
 static std::unordered_map<std::string, size_t> g_modIndex;
 static uint32_t g_nextThunkAddr = 0x70000000;
 static std::unordered_map<std::string, uint32_t> g_thunkTable;
+static std::map<std::string, uint32_t> g_dllThunkCounts;
 
 static std::string redirectWinPath(const std::string& binDir, const char* winPath) {
     std::string rel(winPath ? winPath : "");
@@ -235,6 +237,7 @@ static uint32_t getOrAllocNativeThunk(const std::string& dllLower, const std::st
     uint32_t addr = g_nextThunkAddr;
     g_nextThunkAddr += 16;
     g_thunkTable[fullKey] = addr;
+    g_dllThunkCounts[dllLower]++;
     return addr;
 }
 
@@ -312,6 +315,7 @@ Java_com_bolt_stronghold3wrapper_MainActivity_inspectEngineBinaries(
     g_modules.clear();
     g_modIndex.clear();
     g_thunkTable.clear();
+    g_dllThunkCounts.clear();
     g_nextThunkAddr = 0x70000000;
 
     const char* cDir = env->GetStringUTFChars(jBinDir, nullptr);
@@ -346,19 +350,45 @@ Java_com_bolt_stronghold3wrapper_MainActivity_inspectEngineBinaries(
         "..\\..\\assets\\loc.v",
         "config.xml"
     };
-    for (const char* wp : winPaths) {
-        std::string androidPath = redirectWinPath(baseDir, wp);
-        struct stat st{};
-        if (stat(androidPath.c_str(), &st) == 0) {
-            char abuf[256];
-            snprintf(abuf, sizeof(abuf), "[ASSET OK] %-22s -> %lld KB\n",
-                     wp, (long long)(st.st_size / 1024));
-            report << abuf;
-        } else {
-            report << "[ASSET ERR] " << wp << " -> " << androidPath << "\n";
-        }
+    if (!g_modules.empty() && g_modules[0].entryPointRVA + 16 <= g_modules[0].sizeOfImage) {
+        const uint8_t* p = g_modules[0].mappedBase + g_modules[0].entryPointRVA;
+        char epBuf[160];
+        snprintf(epBuf, sizeof(epBuf),
+                 "\nEXE EP (0x%08X): %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
+                 g_modules[0].simBase + g_modules[0].entryPointRVA,
+                 p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11]);
+        report << epBuf;
     }
 
-    report << "Unique ARM64 Native System Thunks Bound: " << g_thunkTable.size() << "\n";
+    report << "\n--- External DLL Thunk Breakdown (Total: " << g_thunkTable.size() << " unique fn) ---\n";
+    int col = 0;
+    for (const auto& kv : g_dllThunkCounts) {
+        char tbuf[96];
+        snprintf(tbuf, sizeof(tbuf), "%-22s: %3u fn", kv.first.c_str(), kv.second);
+        report << tbuf;
+        if (++col % 2 == 0) report << "\n";
+        else report << " | ";
+    }
+    if (col % 2 != 0) report << "\n";
+
+    std::string cfgPath = redirectWinPath(baseDir, "config.xml");
+    struct stat st{};
+    if (stat(cfgPath.c_str(), &st) == 0) {
+        report << "\n[CFG OK] config.xml Exact: " << st.st_size << " Bytes\n";
+    }
+
+    std::string corePath = redirectWinPath(baseDir, "..\\..\\assets\\core.v");
+    FILE* cfp = fopen(corePath.c_str(), "rb");
+    if (cfp) {
+        uint8_t h[8]{};
+        size_t r = fread(h, 1, 8, cfp);
+        fclose(cfp);
+        char hbuf[128];
+        snprintf(hbuf, sizeof(hbuf),
+                 "[VFS OK] core.v Magic (%zuB): %02X %02X %02X %02X %02X %02X %02X %02X\n",
+                 r, h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7]);
+        report << hbuf;
+    }
+
     return env->NewStringUTF(report.str().c_str());
 }
