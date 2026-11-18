@@ -1,4 +1,4 @@
-// app/build.gradle — Stronghold 3 Android Wrapper (auto-generated)
+// app/build.gradle — Stronghold 3 Native ARM64 Port
 apply plugin: 'com.android.application'
 
 android {
@@ -13,7 +13,19 @@ android {
         versionCode 1
         versionName '1.0'
         ndk {
-            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86'
+            abiFilters 'arm64-v8a'
+        }
+        externalNativeBuild {
+            cmake {
+                cppFlags ""
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file("src/main/cpp/CMakeLists.txt")
+            version "3.22.1"
         }
     }
 
