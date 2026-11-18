@@ -11,6 +11,11 @@
 #include <vector>
 #include <unordered_map>
 #include <map>
+#include <memory>
+
+#include "i_x86_cpu.h"
+#include "win32_env_setup.h"
+#include "thunk_dispatcher.h"
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "SH3_BRIDGE", __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "SH3_BRIDGE", __VA_ARGS__)
@@ -106,6 +111,8 @@ struct LoadedModule {
     uint32_t    sizeOfImage = 0;
     uint32_t    simBase = 0;
     uint32_t    entryPointRVA = 0;
+    uint32_t    engineSymsLinked = 0;
+    uint32_t    nativeThunksLinked = 0;
     NTHeader32  nt{};
     std::unordered_map<std::string, uint32_t> nameExports;
     std::unordered_map<uint32_t, uint32_t>    ordExports;
@@ -241,11 +248,8 @@ static uint32_t getOrAllocNativeThunk(const std::string& dllLower, const std::st
     return addr;
 }
 
-static std::string linkModuleIAT(LoadedModule& mod) {
+static void linkModuleIAT(LoadedModule& mod) {
     DataDir impDir = mod.nt.DataDirectory[1];
-    uint32_t linkedEngine = 0;
-    uint32_t linkedThunks = 0;
-
     if (impDir.VirtualAddress > 0 && impDir.VirtualAddress + sizeof(ImportDesc) <= mod.sizeOfImage) {
         auto* id = (ImportDesc*)(mod.mappedBase + impDir.VirtualAddress);
         while (id->Name != 0 && id->Name < mod.sizeOfImage) {
@@ -275,10 +279,11 @@ static std::string linkModuleIAT(LoadedModule& mod) {
                             auto nIt = targetMod.nameExports.find(fnName);
                             if (nIt != targetMod.nameExports.end()) resolvedAddr = nIt->second;
                         }
-                        if (resolvedAddr != 0) linkedEngine++;
                     }
 
-                    if (resolvedAddr == 0) {
+                    if (resolvedAddr != 0) {
+                        mod.engineSymsLinked++;
+                    } else {
                         std::string symName;
                         if (val & 0x80000000u) {
                             symName = "#" + std::to_string(val & 0xFFFFu);
@@ -286,7 +291,7 @@ static std::string linkModuleIAT(LoadedModule& mod) {
                             symName = (const char*)(mod.mappedBase + val + 2);
                         }
                         resolvedAddr = getOrAllocNativeThunk(dllLower, symName);
-                        linkedThunks++;
+                        mod.nativeThunksLinked++;
                     }
 
                     *iat = resolvedAddr;
@@ -297,13 +302,75 @@ static std::string linkModuleIAT(LoadedModule& mod) {
             id++;
         }
     }
+}
 
-    char buf[256];
-    snprintf(buf, sizeof(buf),
-             "[LINKED] %-24s | EngineSyms:%4u | NativeThunks:%4u | EP:0x%08X\n",
-             mod.name.c_str(), linkedEngine, linkedThunks, mod.simBase + mod.entryPointRVA);
-    LOGI("%s", buf);
+static std::string dumpEntryBytes(const LoadedModule& mod, size_t nBytes) {
+    if (mod.entryPointRVA + nBytes > mod.sizeOfImage) return "OUT_OF_RANGE";
+    const uint8_t* p = mod.mappedBase + mod.entryPointRVA;
+    char buf[128];
+    size_t pos = 0;
+    for (size_t i = 0; i < nBytes && pos + 4 < sizeof(buf); ++i) {
+        pos += snprintf(buf + pos, sizeof(buf) - pos, "%02X ", p[i]);
+    }
+    if (pos > 0 && buf[pos - 1] == ' ') buf[pos - 1] = '\0';
     return std::string(buf);
+}
+
+static std::string runStage5BootstrapProbe() {
+    std::ostringstream out;
+    out << "\n=== Stage 5: x86 CPU Interface + TEB/PEB + Thunk Trap ===\n";
+    if (g_modules.empty()) {
+        out << "[STAGE5 ERR] No modules mapped in memory.\n";
+        return out.str();
+    }
+
+    std::unique_ptr<IX86CPU> cpu(createActiveX86CPU());
+    if (!cpu || !cpu->initialize()) {
+        out << "[STAGE5 ERR] Failed to initialize x86 CPU backend.\n";
+        return out.str();
+    }
+    out << "CPU Backend : " << cpu->backendName() << "\n";
+
+    for (const auto& m : g_modules) {
+        cpu->mapGuestMemory(m.simBase, m.sizeOfImage, m.mappedBase);
+    }
+
+    Win32EnvState envState{};
+    std::string envReport;
+    if (!setupWin32GuestEnvironment(cpu.get(), g_modules[0].simBase, envState, envReport)) {
+        out << "[STAGE5 ERR] Failed to setup TEB/PEB environment.\n";
+        return out.str();
+    }
+    out << envReport << "\n";
+
+    ThunkDispatcher dispatcher;
+    dispatcher.buildReverseMap(g_thunkTable);
+    out << "Reverse Thunk Map Indexed: " << dispatcher.count() << " entries\n";
+
+    cpu->setThunkRange(0x70000000u, g_nextThunkAddr + 16,
+        [&dispatcher](uint32_t thunkAddr, uint32_t retAddr) {
+            return dispatcher.onThunkTrap(thunkAddr, retAddr);
+        });
+
+    uint32_t exeEP = g_modules[0].simBase + g_modules[0].entryPointRVA;
+    X86StepResult stepRes = cpu->stepInstructions(exeEP, 100);
+
+    char sbuf[256];
+    snprintf(sbuf, sizeof(sbuf),
+             "Trace Result: %s | Steps: %u | StopEIP: 0x%08X\n",
+             stepRes.reason.c_str(), stepRes.stepsExecuted, stepRes.stopAddress);
+    out << sbuf;
+
+    if (stepRes.haltedOnThunk) {
+        snprintf(sbuf, sizeof(sbuf),
+                 "[TRAP OK] First Win32 Call -> 0x%08X (%s)\n",
+                 dispatcher.lastTrappedAddress(),
+                 dispatcher.lastTrappedSymbol().c_str());
+        out << sbuf;
+    }
+
+    destroyWin32GuestEnvironment(envState);
+    return out.str();
 }
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -338,35 +405,36 @@ Java_com_bolt_stronghold3wrapper_MainActivity_inspectEngineBinaries(
         mapAndIndexPE(baseDir, s.name, s.simBase);
     }
 
-    std::ostringstream report;
-    report << "=== SH3 ARM64 Bridge (Stage 3: IAT Linker + Thunks + File I/O) ===\n";
-    for (auto& m : g_modules) {
-        report << linkModuleIAT(m);
+    for (size_t i = 0; i < g_modules.size(); ++i) {
+        linkModuleIAT(g_modules[i]);
     }
 
-    report << "\n--- Win32 Path Redirector & Asset Archive Verification ---\n";
-    const char* winPaths[] = {
-        "..\\..\\assets\\core.v",
-        "..\\..\\assets\\loc.v",
-        "config.xml"
-    };
-    if (!g_modules.empty() && g_modules[0].entryPointRVA + 16 <= g_modules[0].sizeOfImage) {
-        const uint8_t* p = g_modules[0].mappedBase + g_modules[0].entryPointRVA;
-        char epBuf[160];
-        snprintf(epBuf, sizeof(epBuf),
-                 "\nEXE EP (0x%08X): %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
-                 g_modules[0].simBase + g_modules[0].entryPointRVA,
-                 p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11]);
-        report << epBuf;
+    std::ostringstream report;
+    report << "=== SH3 ARM64 Bridge (Stage 4 + Stage 5 Bootstrap) ===\n";
+    for (const auto& m : g_modules) {
+        char mbuf[160];
+        snprintf(mbuf, sizeof(mbuf),
+                 "[LINKED] %-26s | EngineSyms:%4u | NativeThunks:%3u | EP:0x%08X\n",
+                 m.name.c_str(), m.engineSymsLinked, m.nativeThunksLinked,
+                 m.simBase + m.entryPointRVA);
+        report << mbuf;
+    }
+
+    if (!g_modules.empty()) {
+        char epbuf[64];
+        snprintf(epbuf, sizeof(epbuf), "\nEXE EP (0x%08X): ",
+                 g_modules[0].simBase + g_modules[0].entryPointRVA);
+        report << epbuf << dumpEntryBytes(g_modules[0], 12) << "\n";
     }
 
     report << "\n--- External DLL Thunk Breakdown (Total: " << g_thunkTable.size() << " unique fn) ---\n";
     int col = 0;
     for (const auto& kv : g_dllThunkCounts) {
         char tbuf[96];
-        snprintf(tbuf, sizeof(tbuf), "%-22s: %3u fn", kv.first.c_str(), kv.second);
+        snprintf(tbuf, sizeof(tbuf), "%-14s : %3u fn", kv.first.c_str(), kv.second);
         report << tbuf;
-        if (++col % 2 == 0) report << "\n";
+        col++;
+        if (col % 2 == 0) report << "\n";
         else report << " | ";
     }
     if (col % 2 != 0) report << "\n";
@@ -376,19 +444,26 @@ Java_com_bolt_stronghold3wrapper_MainActivity_inspectEngineBinaries(
     if (stat(cfgPath.c_str(), &st) == 0) {
         report << "\n[CFG OK] config.xml Exact: " << st.st_size << " Bytes\n";
     }
-
-    std::string corePath = redirectWinPath(baseDir, "..\\..\\assets\\core.v");
+    std::string corePath = redirectWinPath(baseDir, "../assets_archive/core.v");
     FILE* cfp = fopen(corePath.c_str(), "rb");
+    if (!cfp) {
+        corePath = redirectWinPath(baseDir, "assets_archive/core.v");
+        cfp = fopen(corePath.c_str(), "rb");
+    }
     if (cfp) {
-        uint8_t h[8]{};
-        size_t r = fread(h, 1, 8, cfp);
+        uint8_t magic[8]{};
+        size_t r = fread(magic, 1, 8, cfp);
         fclose(cfp);
-        char hbuf[128];
-        snprintf(hbuf, sizeof(hbuf),
-                 "[VFS OK] core.v Magic (%zuB): %02X %02X %02X %02X %02X %02X %02X %02X\n",
-                 r, h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7]);
-        report << hbuf;
+        if (r == 8) {
+            char hbuf[96];
+            snprintf(hbuf, sizeof(hbuf),
+                     "[VFS OK] core.v Magic (8B): %02X %02X %02X %02X %02X %02X %02X %02X\n",
+                     magic[0], magic[1], magic[2], magic[3],
+                     magic[4], magic[5], magic[6], magic[7]);
+            report << hbuf;
+        }
     }
 
+    report << runStage5BootstrapProbe();
     return env->NewStringUTF(report.str().c_str());
 }
