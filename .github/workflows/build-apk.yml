@@ -50,6 +50,33 @@ jobs:
       - name: Verify Gradle
         run: gradle --version
 
+      - name: Cache Unicorn x86 (arm64-v8a)
+        id: cache-unicorn
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/cpp/third_party/unicorn
+          key: unicorn-2.1.1-x86-arm64-ndk26.1
+
+      - name: Build Unicorn x86 Static Library (arm64-v8a)
+        if: steps.cache-unicorn.outputs.cache-hit != 'true'
+        run: |
+          set -e
+          NDK_DIR="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk/26.1.10909125"
+          git clone --depth 1 --branch 2.1.1 https://github.com/unicorn-engine/unicorn.git /tmp/unicorn-src
+          cmake -S /tmp/unicorn-src -B /tmp/unicorn-build \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK_DIR/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-26 \
+            -DUNICORN_ARCH=x86 \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DUNICORN_BUILD_TESTS=OFF \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/unicorn-build --target unicorn -j$(nproc)
+          mkdir -p app/src/main/cpp/third_party/unicorn/lib
+          mkdir -p app/src/main/cpp/third_party/unicorn/include
+          cp /tmp/unicorn-build/libunicorn.a app/src/main/cpp/third_party/unicorn/lib/
+          cp -r /tmp/unicorn-src/include/unicorn app/src/main/cpp/third_party/unicorn/include/
+
       - name: Build APK
         run: gradle assembleRelease --no-daemon
 
