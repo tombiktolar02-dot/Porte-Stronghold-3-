@@ -3320,6 +3320,103 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "msvcr100.dll!__getmainargs") {
+        uint32_t pArgc = 0, pArgv = 0, pEnv = 0;
+        cpu->readGuestMemory(esp + 4, &pArgc, 4);
+        cpu->readGuestMemory(esp + 8, &pArgv, 4);
+        cpu->readGuestMemory(esp + 12, &pEnv, 4);
+        const char arg0[] = "Stronghold3.exe";
+        uint32_t arg0Ptr = allocGuest(sizeof(arg0));
+        if (arg0Ptr != 0) cpu->writeGuestMemory(arg0Ptr, arg0, sizeof(arg0));
+        uint32_t argvArr[2] = { arg0Ptr, 0u };
+        uint32_t argvPtr = allocGuest(sizeof(argvArr));
+        if (argvPtr != 0) cpu->writeGuestMemory(argvPtr, argvArr, sizeof(argvArr));
+        uint32_t envArr[1] = { 0u };
+        uint32_t envPtr = allocGuest(sizeof(envArr));
+        if (envPtr != 0) cpu->writeGuestMemory(envPtr, envArr, sizeof(envArr));
+        uint32_t argcVal = 1u;
+        if (pArgc != 0) cpu->writeGuestMemory(pArgc, &argcVal, 4);
+        if (pArgv != 0) cpu->writeGuestMemory(pArgv, &argvPtr, 4);
+        if (pEnv  != 0) cpu->writeGuestMemory(pEnv,  &envPtr,  4);
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!__wgetmainargs") {
+        uint32_t pArgc = 0, pArgv = 0, pEnv = 0;
+        cpu->readGuestMemory(esp + 4, &pArgc, 4);
+        cpu->readGuestMemory(esp + 8, &pArgv, 4);
+        cpu->readGuestMemory(esp + 12, &pEnv, 4);
+        const char16_t arg0[] = u"Stronghold3.exe";
+        uint32_t arg0Ptr = allocGuest(sizeof(arg0));
+        if (arg0Ptr != 0) cpu->writeGuestMemory(arg0Ptr, arg0, sizeof(arg0));
+        uint32_t argvArr[2] = { arg0Ptr, 0u };
+        uint32_t argvPtr = allocGuest(sizeof(argvArr));
+        if (argvPtr != 0) cpu->writeGuestMemory(argvPtr, argvArr, sizeof(argvArr));
+        uint32_t envArr[1] = { 0u };
+        uint32_t envPtr = allocGuest(sizeof(envArr));
+        if (envPtr != 0) cpu->writeGuestMemory(envPtr, envArr, sizeof(envArr));
+        uint32_t argcVal = 1u;
+        if (pArgc != 0) cpu->writeGuestMemory(pArgc, &argcVal, 4);
+        if (pArgv != 0) cpu->writeGuestMemory(pArgv, &argvPtr, 4);
+        if (pEnv  != 0) cpu->writeGuestMemory(pEnv,  &envPtr,  4);
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!__p___argc") {
+        uint32_t ptr = allocGuest(4);
+        uint32_t argcVal = 1u;
+        if (ptr != 0) cpu->writeGuestMemory(ptr, &argcVal, 4);
+        cpu->writeRegister(X86Reg::EAX, ptr);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!__p___argv" || sym == "msvcr100.dll!__p___wargv") {
+        uint32_t arg0Ptr = 0;
+        if (sym == "msvcr100.dll!__p___wargv") {
+            const char16_t arg0[] = u"Stronghold3.exe";
+            arg0Ptr = allocGuest(sizeof(arg0));
+            if (arg0Ptr != 0) cpu->writeGuestMemory(arg0Ptr, arg0, sizeof(arg0));
+        } else {
+            const char arg0[] = "Stronghold3.exe";
+            arg0Ptr = allocGuest(sizeof(arg0));
+            if (arg0Ptr != 0) cpu->writeGuestMemory(arg0Ptr, arg0, sizeof(arg0));
+        }
+        uint32_t argvArr[2] = { arg0Ptr, 0u };
+        uint32_t argvPtr = allocGuest(sizeof(argvArr));
+        if (argvPtr != 0) cpu->writeGuestMemory(argvPtr, argvArr, sizeof(argvArr));
+        uint32_t ppArgv = allocGuest(4);
+        if (ppArgv != 0) cpu->writeGuestMemory(ppArgv, &argvPtr, 4);
+        cpu->writeRegister(X86Reg::EAX, ppArgv);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!__p__environ" || sym == "msvcr100.dll!__p__wenviron") {
+        uint32_t envArr[1] = { 0u };
+        uint32_t envPtr = allocGuest(sizeof(envArr));
+        if (envPtr != 0) cpu->writeGuestMemory(envPtr, envArr, sizeof(envArr));
+        uint32_t ppEnv = allocGuest(4);
+        if (ppEnv != 0) cpu->writeGuestMemory(ppEnv, &envPtr, 4);
+        cpu->writeRegister(X86Reg::EAX, ppEnv);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
     if (sym == "msvcr100.dll!___lc_codepage_func") {
         cpu->writeRegister(X86Reg::EAX, 0u); // C locale
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
