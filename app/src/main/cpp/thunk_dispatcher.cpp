@@ -967,5 +967,110 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "kernel32.dll!GetCommandLineA") {
+        const char* cmd = "Stronghold3.exe";
+        uint32_t ptr = allocGuest(32);
+        if (ptr != 0) cpu->writeGuestMemory(ptr, cmd, 16);
+        cpu->writeRegister(X86Reg::EAX, ptr);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall: 0 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!GetCommandLineW") {
+        const char* cmd = "Stronghold3.exe";
+        uint16_t wcmd[16] = {};
+        for (int i = 0; i < 16; ++i) wcmd[i] = static_cast<uint16_t>(cmd[i]);
+        uint32_t ptr = allocGuest(64);
+        if (ptr != 0) cpu->writeGuestMemory(ptr, wcmd, sizeof(wcmd));
+        cpu->writeRegister(X86Reg::EAX, ptr);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall: 0 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "shell32.dll!CommandLineToArgvW") {
+        uint32_t pNumArgs = 0;
+        cpu->readGuestMemory(esp + 8, &pNumArgs, 4);
+        const char* cmd = "Stronghold3.exe";
+        uint16_t wcmd[16] = {};
+        for (int i = 0; i < 16; ++i) wcmd[i] = static_cast<uint16_t>(cmd[i]);
+        uint32_t strPtr = allocGuest(64);
+        uint32_t arrPtr = allocGuest(16);
+        if (strPtr != 0 && arrPtr != 0) {
+            cpu->writeGuestMemory(strPtr, wcmd, sizeof(wcmd));
+            uint32_t argv[2] = { strPtr, 0u };
+            cpu->writeGuestMemory(arrPtr, argv, sizeof(argv));
+        }
+        if (pNumArgs != 0) {
+            uint32_t argc = 1u;
+            cpu->writeGuestMemory(pNumArgs, &argc, 4);
+        }
+        cpu->writeRegister(X86Reg::EAX, arrPtr);
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!LocalFree") {
+        cpu->writeRegister(X86Reg::EAX, 0u);      // NULL = success
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!GetModuleHandleA" || sym == "kernel32.dll!GetModuleHandleW") {
+        uint32_t namePtr = 0;
+        cpu->readGuestMemory(esp + 4, &namePtr, 4);
+        uint32_t hMod = (namePtr == 0u) ? 0x00400000u : 0x60000000u;
+        cpu->writeRegister(X86Reg::EAX, hMod);
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!GetModuleFileNameA") {
+        uint32_t bufPtr = 0, nSize = 0;
+        cpu->readGuestMemory(esp + 8,  &bufPtr, 4);
+        cpu->readGuestMemory(esp + 12, &nSize,  4);
+        std::string path = "C:\\Stronghold3\\Stronghold3.exe";
+        uint32_t written = 0;
+        if (bufPtr != 0 && nSize > 1) {
+            written = (path.size() < nSize - 1) ? static_cast<uint32_t>(path.size()) : (nSize - 1);
+            cpu->writeGuestMemory(bufPtr, path.c_str(), written);
+            uint8_t nul = 0;
+            cpu->writeGuestMemory(bufPtr + written, &nul, 1);
+        }
+        cpu->writeRegister(X86Reg::EAX, written);
+        cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: 3 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!GetModuleFileNameW") {
+        uint32_t bufPtr = 0, nSize = 0;
+        cpu->readGuestMemory(esp + 8,  &bufPtr, 4);
+        cpu->readGuestMemory(esp + 12, &nSize,  4);
+        std::string path = "C:\\Stronghold3\\Stronghold3.exe";
+        uint32_t written = 0;
+        if (bufPtr != 0 && nSize > 1) {
+            written = (path.size() < nSize - 1) ? static_cast<uint32_t>(path.size()) : (nSize - 1);
+            std::vector<uint16_t> wbuf(written + 1, 0);
+            for (uint32_t i = 0; i < written; ++i) wbuf[i] = static_cast<uint16_t>(path[i]);
+            cpu->writeGuestMemory(bufPtr, wbuf.data(), (written + 1) * 2);
+        }
+        cpu->writeRegister(X86Reg::EAX, written);
+        cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: 3 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }
