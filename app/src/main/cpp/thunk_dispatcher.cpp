@@ -2921,6 +2921,20 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "kernel32.dll!IsProcessorFeaturePresent") {
+        uint32_t feat = 0;
+        cpu->readGuestMemory(esp + 4, &feat, 4);
+        uint32_t supported = (feat == 2u || feat == 3u || feat == 6u || feat == 8u ||
+                              feat == 10u || feat == 12u || feat == 13u) ? 1u : 0u;
+        cpu->writeRegister(X86Reg::EAX, supported);
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        char pbuf[96];
+        snprintf(pbuf, sizeof(pbuf), "kernel32.dll!IsProcessorFeaturePresent(%u)->%u", feat, supported);
+        if (m_handledLog.size() < 4096) m_handledLog.push_back(pbuf);
+        return true;
+    }
+
     if (sym == "msvcr100.dll!___lc_codepage_func") {
         cpu->writeRegister(X86Reg::EAX, 0u); // C locale
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
