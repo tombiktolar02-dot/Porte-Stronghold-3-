@@ -1,3 +1,4 @@
+#include <chrono>
 #include <unistd.h>
 #include <mutex>
 #include <jni.h>
@@ -427,20 +428,48 @@ static std::string runStage5BootstrapProbe() {
     }
     uint32_t currentEip = g_modules[0].simBase + g_modules[0].entryPointRVA;
 
+    auto loopStart = std::chrono::steady_clock::now();
+    uint32_t hleExecCount = 0;
+    uint32_t lastHleAddr = 0, lastHleRet = 0;
+    std::string lastHleSym;
     if (!dllAbort)
     for (int iter = 0; iter < 20000000 && totalSteps < maxTotalSteps; ++iter) {
-        stepRes = cpu->stepInstructions(currentEip, maxTotalSteps - totalSteps);
+        if ((iter & 255) == 255) {
+            auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - loopStart).count();
+            if (elapsedMs >= 20000) {
+                stepRes.reason = "WATCHDOG_TIMEOUT_20S";
+                stepRes.haltedOnThunk = false;
+                stepRes.stopAddress = currentEip;
+                break;
+            }
+        }
+        uint32_t rem = maxTotalSteps - totalSteps;
+        uint32_t slice = (rem > 500000u) ? 500000u : rem;
+        stepRes = cpu->stepInstructions(currentEip, slice);
         totalSteps += stepRes.stepsExecuted;
         if (stepRes.haltedOnThunk) {
+            lastHleAddr = dispatcher.lastTrappedAddress();
+            lastHleRet = dispatcher.lastReturnAddress();
+            lastHleSym = dispatcher.lastTrappedSymbol();
             uint32_t nextEip = 0;
-            if (dispatcher.handleThunkCall(cpu.get(),
-                                           dispatcher.lastTrappedAddress(),
-                                           dispatcher.lastReturnAddress(),
-                                           nextEip)) {
+            if (dispatcher.handleThunkCall(cpu.get(), lastHleAddr, lastHleRet, nextEip)) {
+                ++hleExecCount;
                 currentEip = nextEip;
                 continue;
             }
             break; // Unimplemented API reached
+        }
+        if (!stepRes.faulted && stepRes.stepsExecuted > 0) {
+            currentEip = cpu->readRegister(X86Reg::EIP);
+            auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - loopStart).count();
+            if (elapsedMs >= 20000) {
+                stepRes.reason = "WATCHDOG_TIMEOUT_20S";
+                stepRes.stopAddress = currentEip;
+                break;
+            }
+            continue;
         }
         break; // Faulted or max steps reached
     }
@@ -451,6 +480,13 @@ static std::string runStage5BootstrapProbe() {
              stepRes.reason.c_str(), totalSteps, dispatcher.handledLog().size(), stepRes.stopAddress);
     out << sbuf;
 
+    if (stepRes.reason == "WATCHDOG_TIMEOUT_20S") {
+        snprintf(sbuf, sizeof(sbuf),
+                 "[WATCHDOG] RealHLE=%u | LastHLE=0x%08X (%s) | LastRet=0x%08X | EAX=0x%08X ESP=0x%08X\n",
+                 hleExecCount, lastHleAddr, lastHleSym.c_str(), lastHleRet,
+                 cpu->readRegister(X86Reg::EAX), cpu->readRegister(X86Reg::ESP));
+        out << sbuf;
+    }
     if (stepRes.haltedOnThunk) {
         snprintf(sbuf, sizeof(sbuf),
                  "[NEXT TRAP] 0x%08X (%s) | Ret: 0x%08X\n",
