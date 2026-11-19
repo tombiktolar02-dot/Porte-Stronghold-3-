@@ -2616,101 +2616,115 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
-    auto invokeGuestComparator = [&](uint32_t compFn, uint32_t elemA, uint32_t elemB, uint32_t& outNextEip) -> int32_t {
-        uint32_t savedEsp = 0, savedEip = 0;
-        cpu->readRegister(X86Reg::ESP, &savedEsp);
-        cpu->readRegister(X86Reg::EIP, &savedEip);
-        uint32_t cbEsp = savedEsp - 16;
-        uint32_t sentinelRet = 0x7FFF0000u;
-        cpu->writeGuestMemory(cbEsp + 0, &sentinelRet, 4);
-        cpu->writeGuestMemory(cbEsp + 4, &elemA, 4);
-        cpu->writeGuestMemory(cbEsp + 8, &elemB, 4);
-        cpu->writeRegister(X86Reg::ESP, cbEsp);
-        uint32_t curEip = compFn;
-        int32_t cmpResult = 0;
-        for (int guard = 0; guard < 128; ++guard) {
-            if (curEip == sentinelRet || curEip == 0) break;
-            X86StepResult st = cpu->stepInstructions(curEip, 65536);
-            if (st.faulted) break;
-            if (st.haltedOnThunk) {
-                uint32_t curEsp = 0, retAddr = 0;
-                cpu->readRegister(X86Reg::ESP, &curEsp);
-                cpu->readGuestMemory(curEsp, &retAddr, 4);
-                uint32_t nextAfterThunk = retAddr;
-                if (!dispatch(st.stopAddress, retAddr, cpu, nextAfterThunk)) break;
-                curEip = nextAfterThunk;
-                continue;
-            }
-            uint32_t afterEsp = 0, topRet = 0;
-            cpu->readRegister(X86Reg::ESP, &afterEsp);
-            if (afterEsp >= cbEsp + 4) {
-                cpu->readGuestMemory(afterEsp - 4, &topRet, 4);
-                if (topRet == sentinelRet) break;
-            }
-            uint32_t nextIp = 0;
-            cpu->readRegister(X86Reg::EIP, &nextIp);
-            if (nextIp == curEip) break;
-            curEip = nextIp;
-        }
-        uint32_t eaxVal = 0;
-        cpu->readRegister(X86Reg::EAX, &eaxVal);
-        cmpResult = static_cast<int32_t>(eaxVal);
-        cpu->writeRegister(X86Reg::ESP, savedEsp);
-        cpu->writeRegister(X86Reg::EIP, savedEip);
-        return cmpResult;
-    };
-
-    if (sym == "msvcr100.dll!qsort") {
-        uint32_t basePtr = 0, num = 0, elemSz = 0, compFn = 0;
-        cpu->readGuestMemory(esp + 4, &basePtr, 4);
-        cpu->readGuestMemory(esp + 8, &num, 4);
-        cpu->readGuestMemory(esp + 12, &elemSz, 4);
-        cpu->readGuestMemory(esp + 16, &compFn, 4);
-        if (basePtr != 0 && num > 1 && elemSz > 0 && compFn != 0) {
-            std::vector<uint8_t> tmpA(elemSz), tmpB(elemSz);
-            for (uint32_t i = 0; i + 1 < num; ++i) {
-                for (uint32_t j = 0; j + 1 < num - i; ++j) {
-                    uint32_t addrA = basePtr + j * elemSz;
-                    uint32_t addrB = basePtr + (j + 1) * elemSz;
-                    if (invokeGuestComparator(compFn, addrA, addrB, outNextEip) > 0) {
-                        cpu->readGuestMemory(addrA, tmpA.data(), elemSz);
-                        cpu->readGuestMemory(addrB, tmpB.data(), elemSz);
-                        cpu->writeGuestMemory(addrA, tmpB.data(), elemSz);
-                        cpu->writeGuestMemory(addrB, tmpA.data(), elemSz);
+    if (sym == "msvcr100.dll!qsort" || sym == "msvcr100.dll!bsearch") {
+        bool cbUnhandled = false;
+        auto invokeGuestComparator = [&](uint32_t compFn, uint32_t elemA, uint32_t elemB) -> int32_t {
+            if (cbUnhandled) return 0;
+            uint32_t savedEsp = cpu->readRegister(X86Reg::ESP);
+            uint32_t savedEbp = cpu->readRegister(X86Reg::EBP);
+            uint32_t savedEbx = cpu->readRegister(X86Reg::EBX);
+            uint32_t savedEsi = cpu->readRegister(X86Reg::ESI);
+            uint32_t savedEdi = cpu->readRegister(X86Reg::EDI);
+            uint32_t savedEfl = cpu->readRegister(X86Reg::EFLAGS);
+            uint32_t cbEsp = savedEsp - 64u;
+            uint32_t sentinelRet = 0x7000FFF0u;
+            cpu->writeGuestMemory(cbEsp + 0, &sentinelRet, 4);
+            cpu->writeGuestMemory(cbEsp + 4, &elemA, 4);
+            cpu->writeGuestMemory(cbEsp + 8, &elemB, 4);
+            cpu->writeRegister(X86Reg::ESP, cbEsp);
+            uint32_t curEip = compFn;
+            for (int guard = 0; guard < 1024; ++guard) {
+                X86StepResult st = cpu->stepInstructions(curEip, 65536);
+                if (st.faulted) { m_handledLog.push_back("CB_FAULT: " + st.reason); cbUnhandled = true; break; }
+                if (st.haltedOnThunk) {
+                    if (st.stopAddress == sentinelRet) break;
+                    uint32_t curEsp = cpu->readRegister(X86Reg::ESP);
+                    uint32_t innerRet = 0;
+                    cpu->readGuestMemory(curEsp, &innerRet, 4);
+                    uint32_t nextAfterThunk = innerRet;
+                    if (!handleThunkCall(cpu, st.stopAddress, innerRet, nextAfterThunk)) {
+                        cbUnhandled = true;
+                        break;
                     }
+                    curEip = nextAfterThunk;
+                    continue;
+                }
+                uint32_t nextIp = cpu->readRegister(X86Reg::EIP);
+                if (nextIp == sentinelRet || nextIp == curEip) break;
+                curEip = nextIp;
+            }
+            int32_t cmpRes = static_cast<int32_t>(cpu->readRegister(X86Reg::EAX));
+            cpu->writeRegister(X86Reg::ESP, savedEsp);
+            cpu->writeRegister(X86Reg::EBP, savedEbp);
+            cpu->writeRegister(X86Reg::EBX, savedEbx);
+            cpu->writeRegister(X86Reg::ESI, savedEsi);
+            cpu->writeRegister(X86Reg::EDI, savedEdi);
+            cpu->writeRegister(X86Reg::EFLAGS, savedEfl);
+            return cmpRes;
+        };
+
+        if (sym == "msvcr100.dll!qsort") {
+            uint32_t basePtr = 0, num = 0, elemSz = 0, compFn = 0;
+            cpu->readGuestMemory(esp + 4, &basePtr, 4);
+            cpu->readGuestMemory(esp + 8, &num, 4);
+            cpu->readGuestMemory(esp + 12, &elemSz, 4);
+            cpu->readGuestMemory(esp + 16, &compFn, 4);
+            size_t logMark = m_handledLog.size();
+            if (basePtr != 0 && num > 1 && elemSz > 0 && compFn != 0) {
+                std::vector<uint32_t> idx(num);
+                for (uint32_t i = 0; i < num; ++i) idx[i] = i;
+                std::sort(idx.begin(), idx.end(), [&](uint32_t a, uint32_t b) {
+                    if (cbUnhandled) return false;
+                    return invokeGuestComparator(compFn, basePtr + a * elemSz, basePtr + b * elemSz) < 0;
+                });
+                if (!cbUnhandled) {
+                    size_t totalBytes = static_cast<size_t>(num) * static_cast<size_t>(elemSz);
+                    std::vector<uint8_t> orig(totalBytes), sorted(totalBytes);
+                    cpu->readGuestMemory(basePtr, orig.data(), totalBytes);
+                    for (uint32_t i = 0; i < num; ++i) {
+                        memcpy(sorted.data() + static_cast<size_t>(i) * elemSz,
+                               orig.data() + static_cast<size_t>(idx[i]) * elemSz,
+                               elemSz);
+                    }
+                    cpu->writeGuestMemory(basePtr, sorted.data(), totalBytes);
                 }
             }
-        }
-        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
-        outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
-        return true;
-    }
-
-    if (sym == "msvcr100.dll!bsearch") {
-        uint32_t keyPtr = 0, basePtr = 0, num = 0, elemSz = 0, compFn = 0;
-        cpu->readGuestMemory(esp + 4, &keyPtr, 4);
-        cpu->readGuestMemory(esp + 8, &basePtr, 4);
-        cpu->readGuestMemory(esp + 12, &num, 4);
-        cpu->readGuestMemory(esp + 16, &elemSz, 4);
-        cpu->readGuestMemory(esp + 20, &compFn, 4);
-        uint32_t foundAddr = 0;
-        if (keyPtr != 0 && basePtr != 0 && num > 0 && elemSz > 0 && compFn != 0) {
-            uint32_t lo = 0, hi = num;
-            while (lo < hi) {
-                uint32_t mid = lo + (hi - lo) / 2;
-                uint32_t cand = basePtr + mid * elemSz;
-                int32_t c = invokeGuestComparator(compFn, keyPtr, cand, outNextEip);
-                if (c == 0) { foundAddr = cand; break; }
-                else if (c < 0) { hi = mid; }
-                else { lo = mid + 1; }
+            if (cbUnhandled) return false;
+            m_handledLog.resize(logMark);
+            char qbuf[96];
+            snprintf(qbuf, sizeof(qbuf), "msvcr100.dll!qsort(n=%u,sz=%u)", num, elemSz);
+            m_handledLog.push_back(qbuf);
+            cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+            outNextEip = returnAddr;
+            return true;
+        } else {
+            uint32_t keyPtr = 0, basePtr = 0, num = 0, elemSz = 0, compFn = 0;
+            cpu->readGuestMemory(esp + 4, &keyPtr, 4);
+            cpu->readGuestMemory(esp + 8, &basePtr, 4);
+            cpu->readGuestMemory(esp + 12, &num, 4);
+            cpu->readGuestMemory(esp + 16, &elemSz, 4);
+            cpu->readGuestMemory(esp + 20, &compFn, 4);
+            size_t logMark = m_handledLog.size();
+            uint32_t foundAddr = 0;
+            if (keyPtr != 0 && basePtr != 0 && num > 0 && elemSz > 0 && compFn != 0) {
+                uint32_t lo = 0, hi = num;
+                while (lo < hi && !cbUnhandled) {
+                    uint32_t mid = lo + (hi - lo) / 2;
+                    uint32_t cand = basePtr + mid * elemSz;
+                    int32_t c = invokeGuestComparator(compFn, keyPtr, cand);
+                    if (c == 0) { foundAddr = cand; break; }
+                    else if (c < 0) { hi = mid; }
+                    else { lo = mid + 1; }
+                }
             }
+            if (cbUnhandled) return false;
+            m_handledLog.resize(logMark);
+            cpu->writeRegister(X86Reg::EAX, foundAddr);
+            cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+            outNextEip = returnAddr;
+            m_handledLog.push_back(sym);
+            return true;
         }
-        cpu->writeRegister(X86Reg::EAX, foundAddr);
-        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
-        outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
-        return true;
     }
 
     if (sym == "msvcr100.dll!___lc_codepage_func") {
