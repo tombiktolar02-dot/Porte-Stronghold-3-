@@ -241,5 +241,15 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "kernel32.dll!DecodePointer" || sym == "kernel32.dll!EncodePointer") {
+        uint32_t ptr = 0;
+        cpu->readGuestMemory(esp + 4, &ptr, 4);
+        cpu->writeRegister(X86Reg::EAX, ptr);
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }
