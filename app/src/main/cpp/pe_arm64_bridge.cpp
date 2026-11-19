@@ -368,10 +368,10 @@ static std::string runStage5BootstrapProbe() {
 
     uint32_t currentEip = g_modules[0].simBase + g_modules[0].entryPointRVA;
     uint32_t totalSteps = 0;
-    const uint32_t maxTotalSteps = 100000;
+    const uint32_t maxTotalSteps = 2000000;
     X86StepResult stepRes{};
 
-    for (int iter = 0; iter < 4096 && totalSteps < maxTotalSteps; ++iter) {
+    for (int iter = 0; iter < 65536 && totalSteps < maxTotalSteps; ++iter) {
         stepRes = cpu->stepInstructions(currentEip, maxTotalSteps - totalSteps);
         totalSteps += stepRes.stepsExecuted;
         if (stepRes.haltedOnThunk) {
@@ -416,7 +416,9 @@ static std::string runStage5BootstrapProbe() {
             line.find("!free") == std::string::npos &&
             line.find("!memcpy") == std::string::npos &&
             line.find("!memmove") == std::string::npos &&
-            line.find("CriticalSection") == std::string::npos) {
+            line.find("CriticalSection") == std::string::npos &&
+            line.find("!isspace") == std::string::npos &&
+            line.find("!tolower") == std::string::npos) {
             lines.push_back(line);
         }
         i = j;
