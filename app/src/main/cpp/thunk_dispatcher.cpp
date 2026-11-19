@@ -625,5 +625,223 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    auto readCStr = [&](uint32_t addr, size_t maxLen = 4096) -> std::string {
+        std::string res;
+        if (addr == 0) return res;
+        for (size_t i = 0; i < maxLen; ++i) {
+            uint8_t c = 0;
+            if (!cpu->readGuestMemory(addr + static_cast<uint32_t>(i), &c, 1) || c == 0) break;
+            res.push_back(static_cast<char>(c));
+        }
+        return res;
+    };
+
+    if (sym == "msvcr100.dll!tolower" || sym == "msvcr100.dll!towlower") {
+        uint32_t ch = 0;
+        cpu->readGuestMemory(esp + 4, &ch, 4);
+        if (ch >= 0x41u && ch <= 0x5Au) ch += 32u;
+        cpu->writeRegister(X86Reg::EAX, ch);
+        cpu->writeRegister(X86Reg::ESP, esp + 4);
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!toupper" || sym == "msvcr100.dll!towupper") {
+        uint32_t ch = 0;
+        cpu->readGuestMemory(esp + 4, &ch, 4);
+        if (ch >= 0x61u && ch <= 0x7Au) ch -= 32u;
+        cpu->writeRegister(X86Reg::EAX, ch);
+        cpu->writeRegister(X86Reg::ESP, esp + 4);
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!strlen") {
+        uint32_t ptr = 0;
+        cpu->readGuestMemory(esp + 4, &ptr, 4);
+        std::string str = readCStr(ptr, 65536);
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(str.size()));
+        cpu->writeRegister(X86Reg::ESP, esp + 4);
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!strcmp" || sym == "msvcr100.dll!strncmp" ||
+        sym == "msvcr100.dll!_stricmp" || sym == "msvcr100.dll!_strcmpi" ||
+        sym == "msvcr100.dll!_strnicmp") {
+        uint32_t pA = 0, pB = 0, maxN = 0xFFFFFFFFu;
+        cpu->readGuestMemory(esp + 4, &pA, 4);
+        cpu->readGuestMemory(esp + 8, &pB, 4);
+        bool hasN = (sym == "msvcr100.dll!strncmp" || sym == "msvcr100.dll!_strnicmp");
+        bool nocase = (sym == "msvcr100.dll!_stricmp" || sym == "msvcr100.dll!_strcmpi" || sym == "msvcr100.dll!_strnicmp");
+        if (hasN) cpu->readGuestMemory(esp + 12, &maxN, 4);
+        std::string a = readCStr(pA, hasN ? maxN : 4096);
+        std::string b = readCStr(pB, hasN ? maxN : 4096);
+        int32_t res = 0;
+        size_t len = (a.size() < b.size()) ? a.size() : b.size();
+        if (hasN && len > maxN) len = maxN;
+        for (size_t i = 0; i < len; ++i) {
+            uint8_t ca = static_cast<uint8_t>(a[i]);
+            uint8_t cb = static_cast<uint8_t>(b[i]);
+            if (nocase) {
+                if (ca >= 0x41u && ca <= 0x5Au) ca += 32u;
+                if (cb >= 0x41u && cb <= 0x5Au) cb += 32u;
+            }
+            if (ca != cb) { res = (ca < cb) ? -1 : 1; break; }
+        }
+        if (res == 0 && (!hasN || len < maxN)) {
+            if (a.size() != b.size()) res = (a.size() < b.size()) ? -1 : 1;
+        }
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(res));
+        cpu->writeRegister(X86Reg::ESP, esp + 4);
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!strcpy") {
+        uint32_t dst = 0, src = 0;
+        cpu->readGuestMemory(esp + 4, &dst, 4);
+        cpu->readGuestMemory(esp + 8, &src, 4);
+        std::string sSrc = readCStr(src, 65536);
+        if (dst != 0) {
+            cpu->writeGuestMemory(dst, sSrc.c_str(), sSrc.size() + 1);
+        }
+        cpu->writeRegister(X86Reg::EAX, dst);
+        cpu->writeRegister(X86Reg::ESP, esp + 4);
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!strncpy") {
+        uint32_t dst = 0, src = 0, n = 0;
+        cpu->readGuestMemory(esp + 4,  &dst, 4);
+        cpu->readGuestMemory(esp + 8,  &src, 4);
+        cpu->readGuestMemory(esp + 12, &n,   4);
+        if (dst != 0 && n > 0) {
+            std::string sSrc = readCStr(src, n);
+            std::vector<uint8_t> outBuf(n, 0);
+            size_t copyLen = (sSrc.size() < n) ? sSrc.size() : n;
+            for (size_t i = 0; i < copyLen; ++i) outBuf[i] = static_cast<uint8_t>(sSrc[i]);
+            cpu->writeGuestMemory(dst, outBuf.data(), n);
+        }
+        cpu->writeRegister(X86Reg::EAX, dst);
+        cpu->writeRegister(X86Reg::ESP, esp + 4);
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!strchr" || sym == "msvcr100.dll!strrchr") {
+        uint32_t ptr = 0, chVal = 0;
+        cpu->readGuestMemory(esp + 4, &ptr,   4);
+        cpu->readGuestMemory(esp + 8, &chVal, 4);
+        char target = static_cast<char>(chVal & 0xFFu);
+        std::string str = readCStr(ptr, 65536);
+        uint32_t found = 0u;
+        if (target == 0) {
+            found = ptr + static_cast<uint32_t>(str.size());
+        } else {
+            size_t pos = (sym == "msvcr100.dll!strchr") ? str.find(target) : str.rfind(target);
+            if (pos != std::string::npos) found = ptr + static_cast<uint32_t>(pos);
+        }
+        cpu->writeRegister(X86Reg::EAX, found);
+        cpu->writeRegister(X86Reg::ESP, esp + 4);
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!strstr") {
+        uint32_t pHay = 0, pNeedle = 0;
+        cpu->readGuestMemory(esp + 4, &pHay,    4);
+        cpu->readGuestMemory(esp + 8, &pNeedle, 4);
+        std::string hay = readCStr(pHay, 65536);
+        std::string needle = readCStr(pNeedle, 4096);
+        uint32_t found = 0u;
+        size_t pos = hay.find(needle);
+        if (pos != std::string::npos) found = pHay + static_cast<uint32_t>(pos);
+        cpu->writeRegister(X86Reg::EAX, found);
+        cpu->writeRegister(X86Reg::ESP, esp + 4);
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!TlsAlloc") {
+        uint32_t idx = m_nextTlsIndex++;
+        m_tlsSlots[idx] = 0u;
+        cpu->writeRegister(X86Reg::EAX, idx);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall: 0 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!TlsFree") {
+        uint32_t idx = 0;
+        cpu->readGuestMemory(esp + 4, &idx, 4);
+        m_tlsSlots.erase(idx);
+        cpu->writeRegister(X86Reg::EAX, 1u); // TRUE
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!TlsGetValue") {
+        uint32_t idx = 0;
+        cpu->readGuestMemory(esp + 4, &idx, 4);
+        uint32_t val = 0u;
+        auto it = m_tlsSlots.find(idx);
+        if (it != m_tlsSlots.end()) val = it->second;
+        m_lastError = 0u;
+        cpu->writeRegister(X86Reg::EAX, val);
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!TlsSetValue") {
+        uint32_t idx = 0, val = 0;
+        cpu->readGuestMemory(esp + 4, &idx, 4);
+        cpu->readGuestMemory(esp + 8, &val, 4);
+        m_tlsSlots[idx] = val;
+        cpu->writeRegister(X86Reg::EAX, 1u); // TRUE
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!VirtualAlloc") {
+        uint32_t dwSize = 0;
+        cpu->readGuestMemory(esp + 8, &dwSize, 4);
+        if (dwSize == 0) dwSize = 4096u;
+        uint32_t ptr = allocGuest(dwSize);
+        if (ptr != 0) {
+            std::vector<uint8_t> zeros(dwSize, 0);
+            cpu->writeGuestMemory(ptr, zeros.data(), dwSize);
+        }
+        cpu->writeRegister(X86Reg::EAX, ptr);
+        cpu->writeRegister(X86Reg::ESP, esp + 20); // stdcall: 4 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!VirtualFree") {
+        cpu->writeRegister(X86Reg::EAX, 1u); // TRUE
+        cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: 3 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }

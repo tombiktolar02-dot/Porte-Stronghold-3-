@@ -29,6 +29,8 @@ private:
     std::string m_lastTrappedSym;
     uint32_t    m_lastError      = 0u;
     uint32_t    m_dynThunkCursor = 0x70008000u;
+    uint32_t    m_nextTlsIndex   = 1u;
+    std::unordered_map<uint32_t, uint32_t> m_tlsSlots;
     uint32_t    m_heapCursor = 0x20000000u;
     uint32_t    m_heapEnd    = 0x22000000u;
     std::unordered_map<uint32_t, uint32_t> m_allocSizes;
