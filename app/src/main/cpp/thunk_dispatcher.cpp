@@ -137,5 +137,47 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "kernel32.dll!InterlockedCompareExchange") {
+        uint32_t destPtr = 0, exchange = 0, comperand = 0;
+        cpu->readGuestMemory(esp + 4,  &destPtr,   4);
+        cpu->readGuestMemory(esp + 8,  &exchange,  4);
+        cpu->readGuestMemory(esp + 12, &comperand, 4);
+        uint32_t oldVal = 0;
+        if (destPtr != 0) {
+            cpu->readGuestMemory(destPtr, &oldVal, 4);
+            if (oldVal == comperand) {
+                cpu->writeGuestMemory(destPtr, &exchange, 4);
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, oldVal);
+        cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: retAddr + 3 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!InterlockedExchange") {
+        uint32_t targetPtr = 0, newVal = 0;
+        cpu->readGuestMemory(esp + 4, &targetPtr, 4);
+        cpu->readGuestMemory(esp + 8, &newVal,    4);
+        uint32_t oldVal = 0;
+        if (targetPtr != 0) {
+            cpu->readGuestMemory(targetPtr, &oldVal, 4);
+            cpu->writeGuestMemory(targetPtr, &newVal, 4);
+        }
+        cpu->writeRegister(X86Reg::EAX, oldVal);
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: retAddr + 2 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!Sleep") {
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }
