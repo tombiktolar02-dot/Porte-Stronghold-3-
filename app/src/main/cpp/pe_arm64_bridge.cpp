@@ -410,7 +410,14 @@ static std::string runStage5BootstrapProbe() {
         size_t cnt = j - i;
         std::string line = "  [HLE OK #" + std::to_string(i + 1) + "] " + hlog[i];
         if (cnt > 1) line += " (x" + std::to_string(cnt) + ")";
-        lines.push_back(line);
+        if (line.find("!malloc") == std::string::npos &&
+            line.find("!_msize") == std::string::npos &&
+            line.find("!free") == std::string::npos &&
+            line.find("!memcpy") == std::string::npos &&
+            line.find("!memmove") == std::string::npos &&
+            line.find("CriticalSection") == std::string::npos) {
+            lines.push_back(line);
+        }
         i = j;
     }
     size_t startIdx = (lines.size() > 14) ? (lines.size() - 14) : 0;
