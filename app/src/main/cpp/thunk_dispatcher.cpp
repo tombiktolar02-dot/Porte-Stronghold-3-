@@ -1,3 +1,4 @@
+#include <sys/stat.h>
 #include <cstdio>
 #include "thunk_dispatcher.h"
 #include <android/log.h>
@@ -2217,6 +2218,42 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         if (f != nullptr) res = (sym == "msvcr100.dll!feof") ? static_cast<uint32_t>(feof(f)) : static_cast<uint32_t>(ferror(f));
         cpu->writeRegister(X86Reg::EAX, res);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!GetFileAttributesA") {
+        uint32_t pathPtr = 0;
+        cpu->readGuestMemory(esp + 4, &pathPtr, 4);
+        std::string path = readGuestCStrLocal(pathPtr);
+        for (char& c : path) { if (c == 0x5C) c = 0x2F; }
+        struct stat st;
+        uint32_t attrs = 0xFFFFFFFFu; // INVALID_FILE_ATTRIBUTES
+        if (!path.empty() && stat(path.c_str(), &st) == 0) {
+            attrs = S_ISDIR(st.st_mode) ? 0x10u : 0x80u; // DIR or NORMAL
+        }
+        cpu->writeRegister(X86Reg::EAX, attrs);
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!CreateDirectoryA") {
+        uint32_t pathPtr = 0;
+        cpu->readGuestMemory(esp + 4, &pathPtr, 4);
+        std::string path = readGuestCStrLocal(pathPtr);
+        for (char& c : path) { if (c == 0x5C) c = 0x2F; }
+        uint32_t ok = 0u;
+        if (!path.empty()) {
+            struct stat st;
+            if (mkdir(path.c_str(), 0777) == 0 || stat(path.c_str(), &st) == 0) {
+                ok = 1u;
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, ok);
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall (2 args)
         outNextEip = returnAddr;
         m_handledLog.push_back(sym);
         return true;
