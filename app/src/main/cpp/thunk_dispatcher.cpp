@@ -2490,6 +2490,122 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "msvcr100.dll!sscanf" || sym == "msvcr100.dll!sscanf_s") {
+        bool isSecure = (sym == "msvcr100.dll!sscanf_s");
+        uint32_t bufPtr = 0, fmtPtr = 0;
+        cpu->readGuestMemory(esp + 4, &bufPtr, 4);
+        cpu->readGuestMemory(esp + 8, &fmtPtr, 4);
+        std::string buf = readGuestCStrLocal(bufPtr);
+        std::string fmt = readGuestCStrLocal(fmtPtr);
+        const char* p = buf.c_str();
+        const char* f = fmt.c_str();
+        uint32_t argOff = 12;
+        int matched = 0;
+        while (*f) {
+            if (std::isspace(static_cast<unsigned char>(*f))) {
+                while (std::isspace(static_cast<unsigned char>(*p))) p++;
+                f++;
+                continue;
+            }
+            if (*f != 0x25) {
+                if (*p != *f) break;
+                p++; f++;
+                continue;
+            }
+            f++;
+            if (*f == 0x25) { if (*p != 0x25) break; p++; f++; continue; }
+            bool suppress = false;
+            if (*f == 0x2A) { suppress = true; f++; }
+            int width = 0;
+            while (*f >= 0x30 && *f <= 0x39) { width = width * 10 + (*f - 0x30); f++; }
+            bool isLong = false, isShort = false;
+            if (*f == 0x6C) { isLong = true; f++; if (*f == 0x6C) f++; }
+            else if (*f == 0x68) { isShort = true; f++; if (*f == 0x68) f++; }
+            char spec = *f++;
+            if (spec == 0) break;
+            if (spec != 0x63) { while (std::isspace(static_cast<unsigned char>(*p))) p++; }
+            if (*p == 0) break;
+            if (spec == 0x64 || spec == 0x69 || spec == 0x75 || spec == 0x78 || spec == 0x58 || spec == 0x6F) {
+                int base = (spec == 0x78 || spec == 0x58) ? 16 : (spec == 0x6F ? 8 : (spec == 0x69 ? 0 : 10));
+                char* endp = nullptr;
+                uint32_t val = (spec == 0x75 || spec == 0x78 || spec == 0x58 || spec == 0x6F)
+                    ? static_cast<uint32_t>(std::strtoul(p, &endp, base))
+                    : static_cast<uint32_t>(std::strtol(p, &endp, base));
+                if (endp == p) break;
+                p = endp;
+                if (!suppress) {
+                    uint32_t dst = 0; cpu->readGuestMemory(esp + argOff, &dst, 4); argOff += 4;
+                    if (dst != 0) {
+                        if (isShort) { uint16_t v16 = static_cast<uint16_t>(val); cpu->writeGuestMemory(dst, &v16, 2); }
+                        else { cpu->writeGuestMemory(dst, &val, 4); }
+                    }
+                    matched++;
+                }
+            } else if (spec == 0x66 || spec == 0x67 || spec == 0x65 || spec == 0x47 || spec == 0x45) {
+                char* endp = nullptr;
+                double dval = std::strtod(p, &endp);
+                if (endp == p) break;
+                p = endp;
+                if (!suppress) {
+                    uint32_t dst = 0; cpu->readGuestMemory(esp + argOff, &dst, 4); argOff += 4;
+                    if (dst != 0) {
+                        if (isLong) { cpu->writeGuestMemory(dst, &dval, 8); }
+                        else { float fval = static_cast<float>(dval); cpu->writeGuestMemory(dst, &fval, 4); }
+                    }
+                    matched++;
+                }
+            } else if (spec == 0x73) {
+                std::string tok;
+                while (*p && !std::isspace(static_cast<unsigned char>(*p)) && (width == 0 || static_cast<int>(tok.size()) < width)) {
+                    tok.push_back(*p++);
+                }
+                if (tok.empty()) break;
+                if (!suppress) {
+                    uint32_t dst = 0; cpu->readGuestMemory(esp + argOff, &dst, 4); argOff += 4;
+                    uint32_t maxSz = 0xFFFFFFFFu;
+                    if (isSecure) { cpu->readGuestMemory(esp + argOff, &maxSz, 4); argOff += 4; }
+                    if (dst != 0 && maxSz > 0) {
+                        size_t n = std::min<size_t>(tok.size(), maxSz - 1);
+                        if (n > 0) cpu->writeGuestMemory(dst, tok.c_str(), n);
+                        char z = 0; cpu->writeGuestMemory(dst + static_cast<uint32_t>(n), &z, 1);
+                    }
+                    matched++;
+                }
+            } else if (spec == 0x63) {
+                char ch = *p++;
+                if (!suppress) {
+                    uint32_t dst = 0; cpu->readGuestMemory(esp + argOff, &dst, 4); argOff += 4;
+                    if (isSecure) argOff += 4;
+                    if (dst != 0) cpu->writeGuestMemory(dst, &ch, 1);
+                    matched++;
+                }
+            } else { break; }
+        }
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(matched));
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!atof" || sym == "msvcr100.dll!strtod") {
+        uint32_t strPtr = 0, endPtrAddr = 0;
+        cpu->readGuestMemory(esp + 4, &strPtr, 4);
+        if (sym == "msvcr100.dll!strtod") cpu->readGuestMemory(esp + 8, &endPtrAddr, 4);
+        std::string s = readGuestCStrLocal(strPtr);
+        char* endHost = nullptr;
+        double val = std::strtod(s.c_str(), &endHost);
+        if (endPtrAddr != 0) {
+            uint32_t endGuest = strPtr + static_cast<uint32_t>(endHost - s.c_str());
+            cpu->writeGuestMemory(endPtrAddr, &endGuest, 4);
+        }
+        (void)val;
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     if (sym == "msvcr100.dll!___lc_codepage_func") {
         cpu->writeRegister(X86Reg::EAX, 0u); // C locale
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
