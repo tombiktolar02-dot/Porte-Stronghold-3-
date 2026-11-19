@@ -2093,7 +2093,12 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         std::string mode = readGuestCStrLocal(modePtr);
         for (char& c : path) { if (c == 0x5C) c = 0x2F; }
         uint32_t guestHandle = 0;
-        FILE* f = (!path.empty() && !mode.empty()) ? fopen(path.c_str(), mode.c_str()) : nullptr;
+        FILE* f = nullptr;
+        if (!path.empty() && !mode.empty()) {
+            f = fopen(path.c_str(), mode.c_str());
+            if (!f && path[0] != 0x2F) f = fopen(("../" + path).c_str(), mode.c_str());
+            if (!f && path[0] != 0x2F) f = fopen(("../../" + path).c_str(), mode.c_str());
+        }
         if (f != nullptr) {
             for (uint32_t i = 1; i < 64; ++i) {
                 if (s_cFiles[i] == nullptr) {

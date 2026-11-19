@@ -1,3 +1,4 @@
+#include <unistd.h>
 #include <mutex>
 #include <jni.h>
 #include <android/log.h>
@@ -449,6 +450,7 @@ Java_com_bolt_stronghold3wrapper_MainActivity_inspectEngineBinaries(
 
     const char* cDir = env->GetStringUTFChars(jBinDir, nullptr);
     std::string baseDir(cDir ? cDir : "");
+    if (!baseDir.empty()) chdir(baseDir.c_str());
     env->ReleaseStringUTFChars(jBinDir, cDir);
 
     struct ModSpec { const char* name; uint32_t simBase; };
