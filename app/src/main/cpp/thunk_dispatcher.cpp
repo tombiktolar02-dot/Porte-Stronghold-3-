@@ -2439,6 +2439,50 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "msvcr100.dll!ldiv" || sym == "msvcr100.dll!div") {
+        int32_t numer = 0, denom = 1;
+        cpu->readGuestMemory(esp + 4, &numer, 4);
+        cpu->readGuestMemory(esp + 8, &denom, 4);
+        int32_t quot = (denom != 0) ? (numer / denom) : 0;
+        int32_t rem  = (denom != 0) ? (numer % denom) : 0;
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(quot));
+        cpu->writeRegister(X86Reg::EDX, static_cast<uint32_t>(rem));
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!abs" || sym == "msvcr100.dll!labs") {
+        int32_t v = 0;
+        cpu->readGuestMemory(esp + 4, &v, 4);
+        uint32_t res = static_cast<uint32_t>(v < 0 ? -v : v);
+        cpu->writeRegister(X86Reg::EAX, res);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!srand") {
+        uint32_t seed = 1;
+        cpu->readGuestMemory(esp + 4, &seed, 4);
+        std::srand(seed);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!rand") {
+        uint32_t r = static_cast<uint32_t>(std::rand() & 0x7FFF);
+        cpu->writeRegister(X86Reg::EAX, r);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     if (sym == "msvcr100.dll!___lc_codepage_func") {
         cpu->writeRegister(X86Reg::EAX, 0u); // C locale
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
