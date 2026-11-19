@@ -345,6 +345,18 @@ static std::string runStage5BootstrapProbe() {
 
     ThunkDispatcher dispatcher;
     dispatcher.buildReverseMap(g_thunkTable);
+    {
+        const char cmdA[] = "Stronghold3.exe";
+        const uint16_t cmdW[] = {S,t,r,o,n,g,h,o,l,d,3,.,e,x,e,0};
+        uint32_t ptrA = 0x7000F000u;
+        uint32_t ptrW = 0x7000F100u;
+        cpu->writeGuestMemory(ptrA, cmdA, sizeof(cmdA));
+        cpu->writeGuestMemory(ptrW, cmdW, sizeof(cmdW));
+        auto itA = g_thunkTable.find("msvcr100.dll!_acmdln");
+        if (itA != g_thunkTable.end()) cpu->writeGuestMemory(itA->second, &ptrA, 4);
+        auto itW = g_thunkTable.find("msvcr100.dll!_wcmdln");
+        if (itW != g_thunkTable.end()) cpu->writeGuestMemory(itW->second, &ptrW, 4);
+    }
     out << "Reverse Thunk Map Indexed: " << dispatcher.count() << " entries\n";
 
     cpu->setThunkRange(0x70000000u, g_nextThunkAddr + 16,

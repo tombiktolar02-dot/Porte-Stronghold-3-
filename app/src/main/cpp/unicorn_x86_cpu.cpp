@@ -30,6 +30,10 @@ public:
             munmap(m_gdtHostPage, 4096);
             m_gdtHostPage = nullptr;
         }
+        if (m_thunkDataPage) {
+            munmap(m_thunkDataPage, 65536);
+            m_thunkDataPage = nullptr;
+        }
     }
 
     const char* backendName() const override {
@@ -66,8 +70,24 @@ public:
 
         setupGdtAndSegments(0x7FFDF000u);
 
+        if (!m_thunkDataPage) {
+            m_thunkDataPage = (uint8_t*)mmap(nullptr, 65536, PROT_READ | PROT_WRITE,
+                                             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            if (m_thunkDataPage == MAP_FAILED) {
+                m_thunkDataPage = nullptr;
+                return false;
+            }
+        }
+        memset(m_thunkDataPage, 0, 65536);
+        err = uc_mem_map_ptr(m_uc, 0x70000000u, 65536, UC_PROT_READ | UC_PROT_WRITE, m_thunkDataPage);
+        if (err != UC_ERR_OK) {
+            LOGE("Thunk RW data map failed: %s", uc_strerror(err));
+            return false;
+        }
+
         uc_hook_add(m_uc, &m_codeHook, UC_HOOK_CODE, (void*)onCodeStep, this, 1, 0);
         uc_hook_add(m_uc, &m_unmappedHook, UC_HOOK_MEM_UNMAPPED, (void*)onMemUnmapped, this, 1, 0);
+        uc_hook_add(m_uc, &m_fetchProtHook, UC_HOOK_MEM_FETCH_PROT, (void*)onMemUnmapped, this, 1, 0);
         return true;
     }
 
@@ -201,7 +221,7 @@ private:
         auto* self = reinterpret_cast<UnicornX86CPU*>(user_data);
         uint32_t addr32 = static_cast<uint32_t>(address);
 
-        if (type == UC_MEM_FETCH_UNMAPPED && addr32 >= self->m_thunkStart && addr32 < self->m_thunkEnd) {
+        if ((type == UC_MEM_FETCH_UNMAPPED || type == UC_MEM_FETCH_PROT) && addr32 >= self->m_thunkStart && addr32 < self->m_thunkEnd) {
             uint32_t esp = 0, retAddr = 0;
             uc_reg_read(uc, UC_X86_REG_ESP, &esp);
             uc_mem_read(uc, esp, &retAddr, 4);
@@ -227,6 +247,8 @@ private:
     uc_engine*  m_uc = nullptr;
     uc_hook     m_codeHook = 0;
     uc_hook     m_unmappedHook = 0;
+    uc_hook     m_fetchProtHook = 0;
+    uint8_t*    m_thunkDataPage = nullptr;
     uint8_t*    m_gdtHostPage = nullptr;
     uint32_t    m_gdtGuestAddr = 0x7FFDC000u;
     uint32_t    m_fsBase = 0x7FFDF000u;
