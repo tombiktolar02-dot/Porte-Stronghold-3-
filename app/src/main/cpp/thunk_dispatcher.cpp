@@ -1977,6 +1977,32 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "msvcr100.dll!__pctype_func") {
+        uint32_t tblPtr = allocGuest(512);
+        if (tblPtr != 0) {
+            uint16_t tbl[256] = { 0 };
+            for (int c = 0; c < 128; ++c) {
+                uint16_t f = 0;
+                if (c >= 'A' && c <= 'Z') f |= 0x01;
+                if (c >= 'a' && c <= 'z') f |= 0x02;
+                if (c >= '0' && c <= '9') f |= 0x04;
+                if (c == ' ' || (c >= 0x09 && c <= 0x0D)) f |= 0x08;
+                if ((c >= 0x21 && c <= 0x2F) || (c >= 0x3A && c <= 0x40) ||
+                    (c >= 0x5B && c <= 0x60) || (c >= 0x7B && c <= 0x7E)) f |= 0x10;
+                if (c < 0x20 || c == 0x7F) f |= 0x20;
+                if (c == ' ' || c == 0x09) f |= 0x40;
+                if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f')) f |= 0x80;
+                tbl[c] = f;
+            }
+            cpu->writeGuestMemory(tblPtr, tbl, sizeof(tbl));
+        }
+        cpu->writeRegister(X86Reg::EAX, tblPtr);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     if (sym == "msvcr100.dll!___lc_codepage_func") {
         cpu->writeRegister(X86Reg::EAX, 0u); // C locale
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
