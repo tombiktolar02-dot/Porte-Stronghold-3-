@@ -410,6 +410,7 @@ Java_com_bolt_stronghold3wrapper_MainActivity_inspectEngineBinaries(
     }
 
     std::ostringstream report;
+    report << runStage5BootstrapProbe() << "\n";
     report << "=== SH3 ARM64 Bridge (Stage 4 + Stage 5 Bootstrap) ===\n";
     for (const auto& m : g_modules) {
         char mbuf[160];
@@ -464,6 +465,5 @@ Java_com_bolt_stronghold3wrapper_MainActivity_inspectEngineBinaries(
         }
     }
 
-    report << runStage5BootstrapProbe();
     return env->NewStringUTF(report.str().c_str());
 }
