@@ -2145,20 +2145,26 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         uint32_t readCnt = 0;
         if (f != nullptr && bufPtr != 0 && sz > 0 && cnt > 0) {
             uint32_t total = sz * cnt;
-            std::vector<uint8_t> tmp(total);
-            readCnt = static_cast<uint32_t>(fread(tmp.data(), sz, cnt, f));
-            if (readCnt > 0) cpu->writeGuestMemory(bufPtr, tmp.data(), readCnt * sz);
+            if (total <= 4096) {
+                uint8_t sbuf[4096];
+                readCnt = static_cast<uint32_t>(fread(sbuf, sz, cnt, f));
+                if (readCnt > 0) cpu->writeGuestMemory(bufPtr, sbuf, readCnt * sz);
+            } else {
+                std::vector<uint8_t> tmp(total);
+                readCnt = static_cast<uint32_t>(fread(tmp.data(), sz, cnt, f));
+                if (readCnt > 0) cpu->writeGuestMemory(bufPtr, tmp.data(), readCnt * sz);
+            }
         }
         cpu->writeRegister(X86Reg::EAX, readCnt);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
         static uint32_t s_freadCount = 0;
-        if ((++s_freadCount % 10000) == 0 && f != nullptr) {
-            char pbuf[128];
-            snprintf(pbuf, sizeof(pbuf), "VFS_PROGRESS(reads=%u, pos=%ld, sz=%u, cnt=%u, got=%u)", s_freadCount, ftell(f), sz, cnt, readCnt);
+        if ((++s_freadCount % 50000) == 0 && f != nullptr) {
+            struct stat fst;
+            long fsz = (fstat(fileno(f), &fst) == 0) ? static_cast<long>(fst.st_size) : -1L;
+            char pbuf[160];
+            snprintf(pbuf, sizeof(pbuf), "VFS_PROGRESS(reads=%u, pos=%ld/%ld)", s_freadCount, ftell(f), fsz);
             m_handledLog.push_back(pbuf);
-        } else {
-            m_handledLog.push_back(sym);
         }
         return true;
     }
@@ -2173,9 +2179,15 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         uint32_t writtenCnt = 0;
         if (f != nullptr && bufPtr != 0 && sz > 0 && cnt > 0) {
             uint32_t total = sz * cnt;
-            std::vector<uint8_t> tmp(total);
-            cpu->readGuestMemory(bufPtr, tmp.data(), total);
-            writtenCnt = static_cast<uint32_t>(fwrite(tmp.data(), sz, cnt, f));
+            if (total <= 4096) {
+                uint8_t sbuf[4096];
+                readCnt = static_cast<uint32_t>(fread(sbuf, sz, cnt, f));
+                if (readCnt > 0) cpu->writeGuestMemory(bufPtr, sbuf, readCnt * sz);
+            } else {
+                std::vector<uint8_t> tmp(total);
+                readCnt = static_cast<uint32_t>(fread(tmp.data(), sz, cnt, f));
+                if (readCnt > 0) cpu->writeGuestMemory(bufPtr, tmp.data(), readCnt * sz);
+            }
         }
         cpu->writeRegister(X86Reg::EAX, writtenCnt);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
@@ -2195,7 +2207,6 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, res);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
         return true;
     }
 
@@ -2207,7 +2218,6 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, res);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
         return true;
     }
 
@@ -2232,7 +2242,6 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, res);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
         return true;
     }
 
