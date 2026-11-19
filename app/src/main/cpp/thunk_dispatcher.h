@@ -38,6 +38,23 @@ private:
     std::unordered_map<uint32_t, std::vector<uint32_t>> m_freeBins;
     uint32_t    m_oomCount   = 0;
 
+    std::string m_lastCmp;
+
+    void logSym(const std::string& s) {
+        if (s.find("!malloc") != std::string::npos || s.find("!calloc") != std::string::npos ||
+            s.find("!realloc") != std::string::npos || s.find("!free") != std::string::npos ||
+            s.find("!??") != std::string::npos || s.find("!str") != std::string::npos ||
+            s.find("!_str") != std::string::npos || s.find("!mem") != std::string::npos ||
+            s.find("!is") != std::string::npos || s.find("!to") != std::string::npos ||
+            s.find("!Interlocked") != std::string::npos || s.find("CriticalSection") != std::string::npos ||
+            s.find("WideChar") != std::string::npos || s.find("!GetLastError") != std::string::npos ||
+            s.find("!sprintf") != std::string::npos || s.find("!_snprintf") != std::string::npos ||
+            s.find("!_vsnprintf") != std::string::npos || s.find("!fread") != std::string::npos ||
+            s.find("!ferror") != std::string::npos || s.find("!fseek") != std::string::npos ||
+            s.find("!ftell") != std::string::npos || s.find("!feof") != std::string::npos) return;
+        if (m_handledLog.size() < 4096) m_handledLog.push_back(s);
+    }
+
     uint32_t allocGuest(uint32_t size) {
         if (size == 0) size = 16;
         uint32_t aligned = (size + 15u) & ~15u;

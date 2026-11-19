@@ -46,7 +46,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         }
         cpu->writeRegister(X86Reg::ESP, esp + 8); // retAddr + 1 stdcall arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -54,7 +54,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0x00000543u);
         cpu->writeRegister(X86Reg::ESP, esp + 4);
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -62,7 +62,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0x00000001u);
         cpu->writeRegister(X86Reg::ESP, esp + 4);
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -73,7 +73,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, ms);
         cpu->writeRegister(X86Reg::ESP, esp + 4);
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -90,7 +90,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 1u); // TRUE
         cpu->writeRegister(X86Reg::ESP, esp + 8); // retAddr + 1 stdcall arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -106,7 +106,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         }
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -117,7 +117,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, hMod);
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -125,7 +125,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 1u); // TRUE
         cpu->writeRegister(X86Reg::ESP, esp + 20); // stdcall: retAddr + 4 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -135,7 +135,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0u);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl: caller cleans args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -154,7 +154,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, oldVal);
         cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: retAddr + 3 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -170,14 +170,14 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, oldVal);
         cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: retAddr + 2 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
     if (sym == "kernel32.dll!Sleep") {
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -185,14 +185,14 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0u); // 0 = success
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl: caller cleans args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
     if (sym == "msvcr100.dll!_initterm") {
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl: caller cleans args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -200,7 +200,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0u); // ASCII char is not a multibyte lead byte
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl: caller cleans args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -223,7 +223,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0x61000000u);
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -231,7 +231,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 1u); // TRUE
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -239,7 +239,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0x0008001Fu); // Default x87 FPU control word
         cpu->writeRegister(X86Reg::ESP, esp + 4);     // cdecl: caller cleans args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -249,14 +249,14 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, ptr);
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
     if (sym == "msvcr100.dll!_lock" || sym == "msvcr100.dll!_unlock") {
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl: caller cleans args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -266,11 +266,10 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, funcPtr); // return registered func pointer
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl: caller cleans args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
-    if (m_handledLog.size() > 8192) m_handledLog.erase(m_handledLog.begin(), m_handledLog.begin() + 4096);
     if (sym == "msvcr100.dll!malloc" ||
         sym == "msvcr100.dll!??2@YAPAXI@Z" ||
         sym == "msvcr100.dll!??_U@YAPAXI@Z") {
@@ -280,7 +279,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, ptr);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -297,7 +296,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, ptr);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -319,7 +318,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, newPtr);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -343,7 +342,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, sz);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -354,14 +353,14 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, ptr);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
     if (sym == "msvcr100.dll!_aligned_free") {
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -406,7 +405,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, m_lastError);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall: retAddr only
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -416,7 +415,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         m_lastError = errCode;
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -424,7 +423,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0u);       // FALSE: no more display devices
         cpu->writeRegister(X86Reg::ESP, esp + 20); // stdcall: retAddr + 4 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -432,7 +431,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 1u);       // TRUE
         cpu->writeRegister(X86Reg::ESP, esp + 20); // stdcall: retAddr + 4 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -457,7 +456,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, retVal);
         cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: retAddr + 3 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -473,7 +472,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, val);
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -489,7 +488,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, val);
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -506,7 +505,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, oldVal);
         cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: retAddr + 2 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -519,7 +518,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         }
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -533,7 +532,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 1u);       // TRUE
         cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: retAddr + 2 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -542,7 +541,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         sym == "kernel32.dll!DeleteCriticalSection") {
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -550,7 +549,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 1u);      // TRUE
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -567,7 +566,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, dst);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -586,7 +585,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0u); // errno_t = 0 (success)
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -602,7 +601,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, dst);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -626,7 +625,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(res));
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -648,7 +647,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, ch);
         cpu->writeRegister(X86Reg::ESP, esp + 4);
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -659,7 +658,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, ch);
         cpu->writeRegister(X86Reg::ESP, esp + 4);
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -670,7 +669,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(str.size()));
         cpu->writeRegister(X86Reg::ESP, esp + 4);
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -697,13 +696,14 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
             }
             if (ca != cb) { res = (ca < cb) ? -1 : 1; break; }
         }
+        if (nocase) m_lastCmp = a.substr(0, 32) + "|" + b.substr(0, 32);
         if (res == 0 && (!hasN || len < maxN)) {
             if (a.size() != b.size()) res = (a.size() < b.size()) ? -1 : 1;
         }
         cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(res));
         cpu->writeRegister(X86Reg::ESP, esp + 4);
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -718,7 +718,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, dst);
         cpu->writeRegister(X86Reg::ESP, esp + 4);
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -737,7 +737,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, dst);
         cpu->writeRegister(X86Reg::ESP, esp + 4);
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -757,7 +757,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, found);
         cpu->writeRegister(X86Reg::ESP, esp + 4);
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -773,7 +773,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, found);
         cpu->writeRegister(X86Reg::ESP, esp + 4);
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -783,7 +783,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, idx);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall: 0 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -794,7 +794,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 1u); // TRUE
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -808,7 +808,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, val);
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -820,7 +820,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 1u); // TRUE
         cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -836,7 +836,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, ptr);
         cpu->writeRegister(X86Reg::ESP, esp + 20); // stdcall: 4 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -844,7 +844,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 1u); // TRUE
         cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: 3 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -868,7 +868,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, found);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -888,7 +888,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, dst);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -906,7 +906,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, len);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -927,7 +927,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(res));
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -946,7 +946,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, dst);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -968,7 +968,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, ok);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -979,7 +979,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, ptr);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall: 0 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -992,7 +992,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, ptr);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall: 0 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1016,7 +1016,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, arrPtr);
         cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1024,7 +1024,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0u);      // NULL = success
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1035,7 +1035,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, hMod);
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1054,7 +1054,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, written);
         cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: 3 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1073,7 +1073,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, written);
         cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: 3 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1081,7 +1081,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0u); // 0 = success
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1101,7 +1101,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, bufPtr);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1109,7 +1109,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 1u); // TRUE
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1128,7 +1128,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, written);
         cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1147,7 +1147,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, written);
         cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1300,7 +1300,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, written);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1308,7 +1308,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0u);      // FALSE
         cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall: 0 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1327,7 +1327,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
     if (sym == "kernel32.dll!OutputDebugStringW" || sym == "kernel32.dll!Sleep") {
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1335,7 +1335,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0u);      // previous filter = NULL
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1343,7 +1343,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 1u);      // EXCEPTION_EXECUTE_HANDLER
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1357,7 +1357,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 1u);      // TRUE
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1380,7 +1380,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         }
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1406,7 +1406,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 1u);      // TRUE
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1422,7 +1422,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 1u);      // TRUE
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1430,7 +1430,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0x1DB10106u); // Win 6.1 build 7601
         cpu->writeRegister(X86Reg::ESP, esp + 4);     // stdcall: 0 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1438,7 +1438,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0xFFFFFFFFu);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall: 0 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1446,7 +1446,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0xFFFFFFFEu);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall: 0 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1454,7 +1454,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0x20000000u);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall: 0 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1470,7 +1470,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, ptr);
         cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: 3 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1499,7 +1499,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, newPtr);
         cpu->writeRegister(X86Reg::ESP, esp + 20); // stdcall: 4 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1507,7 +1507,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 1u);       // TRUE
         cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: 3 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1520,7 +1520,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, sz);
         cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: 3 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1554,7 +1554,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 2u);       // ERROR_FILE_NOT_FOUND
         cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: retAddr + 3 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1562,7 +1562,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 2u);       // ERROR_FILE_NOT_FOUND
         cpu->writeRegister(X86Reg::ESP, esp + 28); // stdcall: retAddr + 6 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1570,7 +1570,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0u);       // ERROR_SUCCESS
         cpu->writeRegister(X86Reg::ESP, esp + 28); // stdcall: retAddr + 6 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1584,7 +1584,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0u);       // ERROR_SUCCESS
         cpu->writeRegister(X86Reg::ESP, esp + 40); // stdcall: retAddr + 9 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1592,7 +1592,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0u);      // ERROR_SUCCESS
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1609,7 +1609,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 1u);       // TRUE
         cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: retAddr + 2 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1628,7 +1628,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 1u);       // TRUE
         cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: retAddr + 2 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1641,7 +1641,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, isSpecial ? 1u : 0u); // TRUE / S_OK
         cpu->writeRegister(X86Reg::ESP, isSpecial ? (esp + 20) : (esp + 24));
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1658,7 +1658,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, isSpecial ? 1u : 0u); // TRUE / S_OK
         cpu->writeRegister(X86Reg::ESP, isSpecial ? (esp + 20) : (esp + 24));
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1680,7 +1680,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, len);
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1691,7 +1691,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, len);
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1706,7 +1706,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, dst);
         cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1722,7 +1722,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, dst);
         cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1742,7 +1742,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, dst);
         cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: 3 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1762,7 +1762,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, dst);
         cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: 3 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1777,7 +1777,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, dst);
         cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1795,7 +1795,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, dst);
         cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1821,7 +1821,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(res));
         cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1846,7 +1846,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(res));
         cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1885,7 +1885,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, ret);
         cpu->writeRegister(X86Reg::ESP, esp + 28); // stdcall: 6 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1929,7 +1929,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, ret);
         cpu->writeRegister(X86Reg::ESP, esp + 36); // stdcall: 8 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1937,7 +1937,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 1252u);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall: 0 args
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1950,7 +1950,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, cStrPtr);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -1977,7 +1977,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, lcPtr);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2003,7 +2003,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, tblPtr);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2011,7 +2011,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0u); // false: no active exception
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2025,7 +2025,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, s_errnoPtr);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2039,7 +2039,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, s_iobPtr);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2049,7 +2049,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, ptr);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2065,7 +2065,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0u);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2134,7 +2134,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, res);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2189,7 +2189,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, writtenCnt);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2226,7 +2226,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0u);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2255,7 +2255,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, attrs);
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall (1 arg)
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2274,7 +2274,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, ok);
         cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall (2 args)
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2312,7 +2312,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, tokenStart);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2324,7 +2324,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, val);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2345,7 +2345,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, val);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2360,7 +2360,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, res);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2376,7 +2376,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, res);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2389,7 +2389,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, dst);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2415,7 +2415,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0u);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2423,7 +2423,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0u); // false: do not restart via Steam
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2433,7 +2433,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0u); // false: skip Steam interfaces
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2454,7 +2454,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0u);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2468,7 +2468,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EDX, static_cast<uint32_t>(rem));
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        char lbuf[96]; snprintf(lbuf, sizeof(lbuf), "%s(n=%d,d=%d)", sym.c_str(), numer, denom);
+        char lbuf[192]; snprintf(lbuf, sizeof(lbuf), "%s(n=%d,d=%d,cmp=%s)", sym.c_str(), numer, denom, m_lastCmp.c_str());
         m_handledLog.push_back(lbuf);
         return true;
     }
@@ -2480,7 +2480,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, res);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2490,7 +2490,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         std::srand(seed);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2499,7 +2499,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, r);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2597,7 +2597,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(matched));
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2615,7 +2615,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         (void)val;
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2725,7 +2725,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
             cpu->writeRegister(X86Reg::EAX, foundAddr);
             cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
             outNextEip = returnAddr;
-            m_handledLog.push_back(sym);
+            logSym(sym);
             return true;
         }
     }
@@ -2817,7 +2817,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, res);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2831,7 +2831,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(r));
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2854,7 +2854,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, absPtr);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2862,7 +2862,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 0u); // C locale
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2875,7 +2875,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, hPtr);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
@@ -2883,14 +2883,14 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, 1u);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
     if (sym == "msvcr100.dll!_lock" || sym == "msvcr100.dll!_unlock") {
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        logSym(sym);
         return true;
     }
 
