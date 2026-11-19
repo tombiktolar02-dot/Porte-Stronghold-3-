@@ -1,6 +1,7 @@
 #include <sys/stat.h>
 #include <cstdio>
 #include "thunk_dispatcher.h"
+#include <ctime>
 #include <android/log.h>
 #include <time.h>
 
@@ -2945,6 +2946,106 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
     if (sym == "comctl32.dll!InitCommonControlsEx") {
         cpu->writeRegister(X86Reg::EAX, 1u); // TRUE
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_time64") {
+        uint32_t dstPtr = 0;
+        cpu->readGuestMemory(esp + 4, &dstPtr, 4);
+        int64_t now = static_cast<int64_t>(time(nullptr));
+        if (dstPtr != 0) cpu->writeGuestMemory(dstPtr, &now, 8);
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(now & 0xFFFFFFFFull));
+        cpu->writeRegister(X86Reg::EDX, static_cast<uint32_t>((static_cast<uint64_t>(now) >> 32) & 0xFFFFFFFFull));
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_time32" || sym == "msvcr100.dll!time") {
+        uint32_t dstPtr = 0;
+        cpu->readGuestMemory(esp + 4, &dstPtr, 4);
+        uint32_t now = static_cast<uint32_t>(time(nullptr));
+        if (dstPtr != 0) cpu->writeGuestMemory(dstPtr, &now, 4);
+        cpu->writeRegister(X86Reg::EAX, now);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_localtime64" || sym == "msvcr100.dll!_localtime32" ||
+        sym == "msvcr100.dll!_gmtime64" || sym == "msvcr100.dll!_gmtime32") {
+        uint32_t tPtr = 0;
+        cpu->readGuestMemory(esp + 4, &tPtr, 4);
+        time_t tv = time(nullptr);
+        if (tPtr != 0) {
+            if (sym.find("64") != std::string::npos) {
+                int64_t v64 = 0; cpu->readGuestMemory(tPtr, &v64, 8); tv = static_cast<time_t>(v64);
+            } else {
+                int32_t v32 = 0; cpu->readGuestMemory(tPtr, &v32, 4); tv = static_cast<time_t>(v32);
+            }
+        }
+        struct tm resTm{};
+        if (sym.find("gmtime") != std::string::npos) gmtime_r(&tv, &resTm);
+        else localtime_r(&tv, &resTm);
+        int32_t gtm[9] = { resTm.tm_sec, resTm.tm_min, resTm.tm_hour, resTm.tm_mday,
+                           resTm.tm_mon, resTm.tm_year, resTm.tm_wday, resTm.tm_yday, resTm.tm_isdst };
+        uint32_t outPtr = allocGuest(36);
+        if (outPtr != 0) cpu->writeGuestMemory(outPtr, gtm, sizeof(gtm));
+        cpu->writeRegister(X86Reg::EAX, outPtr);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_localtime64_s" || sym == "msvcr100.dll!_localtime32_s" ||
+        sym == "msvcr100.dll!_gmtime64_s" || sym == "msvcr100.dll!_gmtime32_s") {
+        uint32_t outPtr = 0, tPtr = 0;
+        cpu->readGuestMemory(esp + 4, &outPtr, 4);
+        cpu->readGuestMemory(esp + 8, &tPtr, 4);
+        time_t tv = time(nullptr);
+        if (tPtr != 0) {
+            if (sym.find("64") != std::string::npos) {
+                int64_t v64 = 0; cpu->readGuestMemory(tPtr, &v64, 8); tv = static_cast<time_t>(v64);
+            } else {
+                int32_t v32 = 0; cpu->readGuestMemory(tPtr, &v32, 4); tv = static_cast<time_t>(v32);
+            }
+        }
+        struct tm resTm{};
+        if (sym.find("gmtime") != std::string::npos) gmtime_r(&tv, &resTm);
+        else localtime_r(&tv, &resTm);
+        int32_t gtm[9] = { resTm.tm_sec, resTm.tm_min, resTm.tm_hour, resTm.tm_mday,
+                           resTm.tm_mon, resTm.tm_year, resTm.tm_wday, resTm.tm_yday, resTm.tm_isdst };
+        if (outPtr != 0) cpu->writeGuestMemory(outPtr, gtm, sizeof(gtm));
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_mktime64" || sym == "msvcr100.dll!_mktime32") {
+        uint32_t tmPtr = 0;
+        cpu->readGuestMemory(esp + 4, &tmPtr, 4);
+        int64_t res = -1;
+        if (tmPtr != 0) {
+            int32_t gtm[9] = {};
+            cpu->readGuestMemory(tmPtr, gtm, sizeof(gtm));
+            struct tm t{};
+            t.tm_sec = gtm[0]; t.tm_min = gtm[1]; t.tm_hour = gtm[2];
+            t.tm_mday = gtm[3]; t.tm_mon = gtm[4]; t.tm_year = gtm[5];
+            t.tm_wday = gtm[6]; t.tm_yday = gtm[7]; t.tm_isdst = gtm[8];
+            res = static_cast<int64_t>(mktime(&t));
+        }
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(res & 0xFFFFFFFFull));
+        if (sym == "msvcr100.dll!_mktime64") {
+            cpu->writeRegister(X86Reg::EDX, static_cast<uint32_t>((static_cast<uint64_t>(res) >> 32) & 0xFFFFFFFFull));
+        }
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
         logSym(sym);
         return true;
