@@ -179,5 +179,20 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "msvcr100.dll!_initterm_e") {
+        cpu->writeRegister(X86Reg::EAX, 0u); // 0 = success
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl: caller cleans args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_initterm") {
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl: caller cleans args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }
