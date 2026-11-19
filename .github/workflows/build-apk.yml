@@ -74,7 +74,15 @@ jobs:
           cmake --build /tmp/unicorn-build --target unicorn -j$(nproc)
           mkdir -p app/src/main/cpp/third_party/unicorn/lib
           mkdir -p app/src/main/cpp/third_party/unicorn/include
-          cp /tmp/unicorn-build/libunicorn.a app/src/main/cpp/third_party/unicorn/lib/
+          AR="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+          {
+            echo "CREATE app/src/main/cpp/third_party/unicorn/lib/libunicorn.a"
+            for lib in /tmp/unicorn-build/*.a; do
+              echo "ADDLIB $lib"
+            done
+            echo "SAVE"
+            echo "END"
+          } | "$AR" -M
           cp -r /tmp/unicorn-src/include/unicorn app/src/main/cpp/third_party/unicorn/include/
 
       - name: Build APK
