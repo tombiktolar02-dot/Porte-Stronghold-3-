@@ -51,7 +51,7 @@ private:
             s.find("!sprintf") != std::string::npos || s.find("!_snprintf") != std::string::npos ||
             s.find("!_vsnprintf") != std::string::npos || s.find("!fread") != std::string::npos ||
             s.find("!ferror") != std::string::npos || s.find("!fseek") != std::string::npos ||
-            s.find("!ftell") != std::string::npos || s.find("!feof") != std::string::npos) return;
+            s.find("!ftell") != std::string::npos || s.find("!feof") != std::string::npos || s.find("!DecodePointer") != std::string::npos || s.find("!EncodePointer") != std::string::npos || s.find("!_lock") != std::string::npos || s.find("!_unlock") != std::string::npos || s.find("!__dllonexit") != std::string::npos) return;
         if (m_handledLog.size() < 4096) m_handledLog.push_back(s);
     }
 

@@ -3261,6 +3261,65 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    static uint32_t s_fpControl = 0x0009001Fu;
+    if (sym == "msvcr100.dll!_controlfp_s") {
+        uint32_t curPtr = 0, newCtrl = 0, mask = 0;
+        cpu->readGuestMemory(esp + 4, &curPtr, 4);
+        cpu->readGuestMemory(esp + 8, &newCtrl, 4);
+        cpu->readGuestMemory(esp + 12, &mask, 4);
+        s_fpControl = (s_fpControl & ~mask) | (newCtrl & mask);
+        if (curPtr != 0) cpu->writeGuestMemory(curPtr, &s_fpControl, 4);
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_controlfp" || sym == "msvcr100.dll!_control87") {
+        uint32_t newCtrl = 0, mask = 0;
+        cpu->readGuestMemory(esp + 4, &newCtrl, 4);
+        cpu->readGuestMemory(esp + 8, &mask, 4);
+        s_fpControl = (s_fpControl & ~mask) | (newCtrl & mask);
+        cpu->writeRegister(X86Reg::EAX, s_fpControl);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!__control87_2") {
+        uint32_t newCtrl = 0, mask = 0, x86Ptr = 0, ssePtr = 0;
+        cpu->readGuestMemory(esp + 4, &newCtrl, 4);
+        cpu->readGuestMemory(esp + 8, &mask, 4);
+        cpu->readGuestMemory(esp + 12, &x86Ptr, 4);
+        cpu->readGuestMemory(esp + 16, &ssePtr, 4);
+        s_fpControl = (s_fpControl & ~mask) | (newCtrl & mask);
+        if (x86Ptr != 0) cpu->writeGuestMemory(x86Ptr, &s_fpControl, 4);
+        if (ssePtr != 0) cpu->writeGuestMemory(ssePtr, &s_fpControl, 4);
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_clearfp" || sym == "msvcr100.dll!_statusfp") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_fpreset") {
+        s_fpControl = 0x0009001Fu;
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
     if (sym == "msvcr100.dll!___lc_codepage_func") {
         cpu->writeRegister(X86Reg::EAX, 0u); // C locale
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
