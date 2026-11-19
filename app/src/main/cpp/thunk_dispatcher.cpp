@@ -431,5 +431,30 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "user32.dll!EnumDisplaySettingsA" || sym == "dynamic!EnumDisplaySettingsA") {
+        uint32_t iModeNum = 0, lpDevMode = 0;
+        cpu->readGuestMemory(esp + 8,  &iModeNum,  4);
+        cpu->readGuestMemory(esp + 12, &lpDevMode, 4);
+        uint32_t retVal = 0u;
+        if (iModeNum == 0u || iModeNum == 0xFFFFFFFFu || iModeNum == 0xFFFFFFFEu) {
+            if (lpDevMode != 0) {
+                uint32_t dmFields = 0x005C0000u; // BITSPERPEL | PELSWIDTH | PELSHEIGHT | DISPLAYFREQUENCY
+                uint32_t bpp = 32u, w = 1280u, h = 720u, flags = 0u, freq = 60u;
+                cpu->writeGuestMemory(lpDevMode + 40,  &dmFields, 4);
+                cpu->writeGuestMemory(lpDevMode + 104, &bpp,      4);
+                cpu->writeGuestMemory(lpDevMode + 108, &w,        4);
+                cpu->writeGuestMemory(lpDevMode + 112, &h,        4);
+                cpu->writeGuestMemory(lpDevMode + 116, &flags,    4);
+                cpu->writeGuestMemory(lpDevMode + 120, &freq,     4);
+            }
+            retVal = 1u; // TRUE
+        }
+        cpu->writeRegister(X86Reg::EAX, retVal);
+        cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: retAddr + 3 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }
