@@ -92,5 +92,50 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "kernel32.dll!GetStartupInfoW") {
+        uint32_t lpStartupInfo = 0;
+        cpu->readGuestMemory(esp + 4, &lpStartupInfo, 4);
+        if (lpStartupInfo != 0) {
+            uint8_t si[68] = {};
+            uint32_t cb = 68u;
+            si[0] = static_cast<uint8_t>(cb & 0xFFu);
+            si[1] = static_cast<uint8_t>((cb >> 8) & 0xFFu);
+            cpu->writeGuestMemory(lpStartupInfo, si, sizeof(si));
+        }
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!GetModuleHandleW" || sym == "kernel32.dll!GetModuleHandleA") {
+        uint32_t lpModuleName = 0;
+        cpu->readGuestMemory(esp + 4, &lpModuleName, 4);
+        uint32_t hMod = (lpModuleName == 0) ? 0x00400000u : 0u;
+        cpu->writeRegister(X86Reg::EAX, hMod);
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!HeapSetInformation") {
+        cpu->writeRegister(X86Reg::EAX, 1u); // TRUE
+        cpu->writeRegister(X86Reg::ESP, esp + 20); // stdcall: retAddr + 4 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!__set_app_type" ||
+        sym == "msvcr100.dll!__setusermatherr" ||
+        sym == "msvcr100.dll!_configthreadlocale") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl: caller cleans args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }
