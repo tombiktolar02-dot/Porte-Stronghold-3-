@@ -2011,6 +2011,60 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "msvcr100.dll!_errno") {
+        static uint32_t s_errnoPtr = 0;
+        if (s_errnoPtr == 0) {
+            s_errnoPtr = allocGuest(4);
+            uint32_t zero = 0;
+            if (s_errnoPtr != 0) cpu->writeGuestMemory(s_errnoPtr, &zero, 4);
+        }
+        cpu->writeRegister(X86Reg::EAX, s_errnoPtr);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!__iob_func") {
+        static uint32_t s_iobPtr = 0;
+        if (s_iobPtr == 0) {
+            s_iobPtr = allocGuest(96); // 3 x 32-byte FILE structs
+            uint8_t zeros[96] = { 0 };
+            if (s_iobPtr != 0) cpu->writeGuestMemory(s_iobPtr, zeros, sizeof(zeros));
+        }
+        cpu->writeRegister(X86Reg::EAX, s_iobPtr);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_encode_pointer" || sym == "msvcr100.dll!_decode_pointer") {
+        uint32_t ptr = 0;
+        cpu->readGuestMemory(esp + 4, &ptr, 4);
+        cpu->writeRegister(X86Reg::EAX, ptr);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!___lc_collate_cp_func" ||
+        sym == "msvcr100.dll!_encoded_null" ||
+        sym == "msvcr100.dll!atexit" ||
+        sym == "msvcr100.dll!_invalid_parameter_noinfo" ||
+        sym == "msvcr100.dll!_invalid_parameter_noinfo_noreturn" ||
+        sym == "msvcr100.dll!_set_invalid_parameter_handler" ||
+        sym == "msvcr100.dll!_set_purecall_handler" ||
+        sym == "msvcr100.dll!__CppXcptFilter" ||
+        sym == "msvcr100.dll!_XcptFilter") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     if (sym == "msvcr100.dll!___lc_codepage_func") {
         cpu->writeRegister(X86Reg::EAX, 0u); // C locale
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
