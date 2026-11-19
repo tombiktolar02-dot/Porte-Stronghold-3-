@@ -2935,6 +2935,21 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "comctl32.dll!#17" || sym == "comctl32.dll!InitCommonControls") {
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall (0 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "comctl32.dll!InitCommonControlsEx") {
+        cpu->writeRegister(X86Reg::EAX, 1u); // TRUE
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
     if (sym == "msvcr100.dll!___lc_codepage_func") {
         cpu->writeRegister(X86Reg::EAX, 0u); // C locale
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
