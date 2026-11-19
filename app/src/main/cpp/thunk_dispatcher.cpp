@@ -2400,6 +2400,45 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "steam_api.dll!SteamAPI_RestartAppIfNecessary") {
+        cpu->writeRegister(X86Reg::EAX, 0u); // false: do not restart via Steam
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "steam_api.dll!SteamAPI_Init" ||
+        sym == "steam_api.dll!SteamAPI_InitSafe" ||
+        sym == "steam_api.dll!SteamAPI_IsSteamRunning") {
+        cpu->writeRegister(X86Reg::EAX, 1u); // true
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "steam_api.dll!SteamAPI_Shutdown" ||
+        sym == "steam_api.dll!SteamAPI_RunCallbacks" ||
+        sym == "steam_api.dll!SteamAPI_RegisterCallback" ||
+        sym == "steam_api.dll!SteamAPI_UnregisterCallback" ||
+        sym == "steam_api.dll!SteamAPI_RegisterCallResult" ||
+        sym == "steam_api.dll!SteamAPI_UnregisterCallResult" ||
+        sym == "steam_api.dll!SteamUser" ||
+        sym == "steam_api.dll!SteamFriends" ||
+        sym == "steam_api.dll!SteamUtils" ||
+        sym == "steam_api.dll!SteamUserStats" ||
+        sym == "steam_api.dll!SteamApps" ||
+        sym == "steam_api.dll!SteamRemoteStorage" ||
+        sym == "steam_api.dll!SteamNetworking" ||
+        sym == "steam_api.dll!SteamMatchmaking") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     if (sym == "msvcr100.dll!___lc_codepage_func") {
         cpu->writeRegister(X86Reg::EAX, 0u); // C locale
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
