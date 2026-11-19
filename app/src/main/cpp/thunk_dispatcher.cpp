@@ -1937,5 +1937,81 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "msvcr100.dll!setlocale") {
+        uint32_t cStrPtr = allocGuest(4);
+        if (cStrPtr != 0) {
+            const char cLoc[2] = { 0x43, 0x00 }; // "C"
+            cpu->writeGuestMemory(cStrPtr, cLoc, 2);
+        }
+        cpu->writeRegister(X86Reg::EAX, cStrPtr);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!localeconv") {
+        uint32_t lcPtr = allocGuest(80);
+        uint32_t dotPtr = allocGuest(4);
+        uint32_t empPtr = allocGuest(4);
+        uint32_t negPtr = allocGuest(4);
+        if (lcPtr != 0 && dotPtr != 0 && empPtr != 0 && negPtr != 0) {
+            const char dotS[2] = { 0x2E, 0x00 }; // "."
+            const char empS[1] = { 0x00 };
+            const char negS[2] = { 0x2D, 0x00 }; // "-"
+            cpu->writeGuestMemory(dotPtr, dotS, 2);
+            cpu->writeGuestMemory(empPtr, empS, 1);
+            cpu->writeGuestMemory(negPtr, negS, 2);
+            uint32_t ptrs[10] = {
+                dotPtr, empPtr, empPtr, empPtr, empPtr,
+                empPtr, empPtr, empPtr, empPtr, negPtr
+            };
+            cpu->writeGuestMemory(lcPtr, ptrs, sizeof(ptrs));
+            uint8_t chars[8] = { 127, 127, 127, 127, 127, 127, 127, 127 };
+            cpu->writeGuestMemory(lcPtr + 40, chars, sizeof(chars));
+        }
+        cpu->writeRegister(X86Reg::EAX, lcPtr);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!___lc_codepage_func") {
+        cpu->writeRegister(X86Reg::EAX, 0u); // C locale
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!___lc_handle_func") {
+        uint32_t hPtr = allocGuest(24);
+        if (hPtr != 0) {
+            uint32_t zeros[6] = { 0, 0, 0, 0, 0, 0 };
+            cpu->writeGuestMemory(hPtr, zeros, sizeof(zeros));
+        }
+        cpu->writeRegister(X86Reg::EAX, hPtr);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!___mb_cur_max_func") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_lock" || sym == "msvcr100.dll!_unlock") {
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }
