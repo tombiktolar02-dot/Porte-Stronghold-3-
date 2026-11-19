@@ -1520,5 +1520,143 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "advapi32.dll!RegOpenKeyExA" || sym == "advapi32.dll!RegOpenKeyExW") {
+        uint32_t subKeyPtr = 0, phkResult = 0;
+        cpu->readGuestMemory(esp + 8,  &subKeyPtr, 4);
+        cpu->readGuestMemory(esp + 20, &phkResult, 4);
+        if (phkResult != 0) {
+            uint32_t zero = 0u;
+            cpu->writeGuestMemory(phkResult, &zero, 4);
+        }
+        std::string keyLog;
+        if (sym == "advapi32.dll!RegOpenKeyExA" && subKeyPtr != 0) {
+            keyLog = readCStr(subKeyPtr, 128);
+            if (keyLog.size() > 48) keyLog.resize(48);
+        }
+        cpu->writeRegister(X86Reg::EAX, 2u);       // ERROR_FILE_NOT_FOUND
+        cpu->writeRegister(X86Reg::ESP, esp + 24); // stdcall: retAddr + 5 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(keyLog.empty() ? sym : (sym + "(\"" + keyLog + "\")"));
+        return true;
+    }
+
+    if (sym == "advapi32.dll!RegOpenKeyA" || sym == "advapi32.dll!RegOpenKeyW") {
+        uint32_t phkResult = 0;
+        cpu->readGuestMemory(esp + 12, &phkResult, 4);
+        if (phkResult != 0) {
+            uint32_t zero = 0u;
+            cpu->writeGuestMemory(phkResult, &zero, 4);
+        }
+        cpu->writeRegister(X86Reg::EAX, 2u);       // ERROR_FILE_NOT_FOUND
+        cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: retAddr + 3 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "advapi32.dll!RegQueryValueExA" || sym == "advapi32.dll!RegQueryValueExW") {
+        cpu->writeRegister(X86Reg::EAX, 2u);       // ERROR_FILE_NOT_FOUND
+        cpu->writeRegister(X86Reg::ESP, esp + 28); // stdcall: retAddr + 6 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "advapi32.dll!RegSetValueExA" || sym == "advapi32.dll!RegSetValueExW") {
+        cpu->writeRegister(X86Reg::EAX, 0u);       // ERROR_SUCCESS
+        cpu->writeRegister(X86Reg::ESP, esp + 28); // stdcall: retAddr + 6 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "advapi32.dll!RegCreateKeyExA" || sym == "advapi32.dll!RegCreateKeyExW") {
+        uint32_t phkResult = 0;
+        cpu->readGuestMemory(esp + 32, &phkResult, 4);
+        if (phkResult != 0) {
+            uint32_t dummyKey = 0x50000001u;
+            cpu->writeGuestMemory(phkResult, &dummyKey, 4);
+        }
+        cpu->writeRegister(X86Reg::EAX, 0u);       // ERROR_SUCCESS
+        cpu->writeRegister(X86Reg::ESP, esp + 40); // stdcall: retAddr + 9 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "advapi32.dll!RegCloseKey") {
+        cpu->writeRegister(X86Reg::EAX, 0u);      // ERROR_SUCCESS
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "advapi32.dll!GetUserNameA") {
+        uint32_t lpBuf = 0, pcbBuf = 0;
+        cpu->readGuestMemory(esp + 4, &lpBuf,  4);
+        cpu->readGuestMemory(esp + 8, &pcbBuf, 4);
+        const char* user = "Player";
+        if (lpBuf != 0) cpu->writeGuestMemory(lpBuf, user, 7);
+        if (pcbBuf != 0) {
+            uint32_t len = 7u;
+            cpu->writeGuestMemory(pcbBuf, &len, 4);
+        }
+        cpu->writeRegister(X86Reg::EAX, 1u);       // TRUE
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: retAddr + 2 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "advapi32.dll!GetUserNameW") {
+        uint32_t lpBuf = 0, pcbBuf = 0;
+        cpu->readGuestMemory(esp + 4, &lpBuf,  4);
+        cpu->readGuestMemory(esp + 8, &pcbBuf, 4);
+        const char* user = "Player";
+        uint16_t wuser[7] = {};
+        for (int i = 0; i < 7; ++i) wuser[i] = static_cast<uint16_t>(user[i]);
+        if (lpBuf != 0) cpu->writeGuestMemory(lpBuf, wuser, sizeof(wuser));
+        if (pcbBuf != 0) {
+            uint32_t len = 7u;
+            cpu->writeGuestMemory(pcbBuf, &len, 4);
+        }
+        cpu->writeRegister(X86Reg::EAX, 1u);       // TRUE
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: retAddr + 2 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "shell32.dll!SHGetFolderPathA" || sym == "shell32.dll!SHGetSpecialFolderPathA") {
+        uint32_t pathPtr = 0;
+        bool isSpecial = (sym == "shell32.dll!SHGetSpecialFolderPathA");
+        cpu->readGuestMemory(isSpecial ? (esp + 8) : (esp + 20), &pathPtr, 4);
+        std::string docs = "C:\\Stronghold3\\Documents";
+        if (pathPtr != 0) cpu->writeGuestMemory(pathPtr, docs.c_str(), docs.size() + 1);
+        cpu->writeRegister(X86Reg::EAX, isSpecial ? 1u : 0u); // TRUE / S_OK
+        cpu->writeRegister(X86Reg::ESP, isSpecial ? (esp + 20) : (esp + 24));
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "shell32.dll!SHGetFolderPathW" || sym == "shell32.dll!SHGetSpecialFolderPathW") {
+        uint32_t pathPtr = 0;
+        bool isSpecial = (sym == "shell32.dll!SHGetSpecialFolderPathW");
+        cpu->readGuestMemory(isSpecial ? (esp + 8) : (esp + 20), &pathPtr, 4);
+        std::string docs = "C:\\Stronghold3\\Documents";
+        if (pathPtr != 0) {
+            std::vector<uint16_t> wdocs(docs.size() + 1, 0);
+            for (size_t i = 0; i < docs.size(); ++i) wdocs[i] = static_cast<uint16_t>(docs[i]);
+            cpu->writeGuestMemory(pathPtr, wdocs.data(), wdocs.size() * 2);
+        }
+        cpu->writeRegister(X86Reg::EAX, isSpecial ? 1u : 0u); // TRUE / S_OK
+        cpu->writeRegister(X86Reg::ESP, isSpecial ? (esp + 20) : (esp + 24));
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }
