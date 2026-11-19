@@ -2107,7 +2107,8 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, guestHandle);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        char fmlog[256]; snprintf(fmlog, sizeof(fmlog), "%s('%s','%s')->0x%X", sym.c_str(), path.c_str(), mode.c_str(), guestHandle);
+        m_handledLog.push_back(fmlog);
         return true;
     }
 
