@@ -360,5 +360,25 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "kernel32.dll!GetProcAddress") {
+        uint32_t hMod = 0, namePtr = 0;
+        cpu->readGuestMemory(esp + 4, &hMod,    4);
+        cpu->readGuestMemory(esp + 8, &namePtr, 4);
+        std::string procStr;
+        if (namePtr > 0xFFFFu) {
+            char nameBuf[128] = {};
+            cpu->readGuestMemory(namePtr, nameBuf, sizeof(nameBuf) - 1);
+            nameBuf[sizeof(nameBuf) - 1] = '\0';
+            procStr = std::string("\"") + nameBuf + "\"";
+        } else {
+            procStr = "#" + std::to_string(namePtr);
+        }
+        cpu->writeRegister(X86Reg::EAX, 0u);       // NULL fallback for optional probes
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: retAddr + 2 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym + "(" + procStr + ")");
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }

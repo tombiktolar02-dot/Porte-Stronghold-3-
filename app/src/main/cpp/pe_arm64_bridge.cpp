@@ -402,14 +402,22 @@ static std::string runStage5BootstrapProbe() {
     }
 
     const auto& hlog = dispatcher.handledLog();
+    std::vector<std::string> lines;
     for (size_t i = 0; i < hlog.size(); ) {
         size_t j = i + 1;
         while (j < hlog.size() && hlog[j] == hlog[i]) ++j;
         size_t cnt = j - i;
-        out << "  [HLE OK #" << (i + 1) << "] " << hlog[i];
-        if (cnt > 1) out << " (x" << cnt << ")";
-        out << "\n";
+        std::string line = "  [HLE OK #" + std::to_string(i + 1) + "] " + hlog[i];
+        if (cnt > 1) line += " (x" + std::to_string(cnt) + ")";
+        lines.push_back(line);
         i = j;
+    }
+    size_t startIdx = (lines.size() > 14) ? (lines.size() - 14) : 0;
+    if (startIdx > 0) {
+        out << "  ... (" << startIdx << " earlier HLE groups hidden) ...\n";
+    }
+    for (size_t k = startIdx; k < lines.size(); ++k) {
+        out << lines[k] << "\n";
     }
 
     destroyWin32GuestEnvironment(envState);
