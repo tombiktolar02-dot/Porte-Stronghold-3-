@@ -368,10 +368,10 @@ static std::string runStage5BootstrapProbe() {
 
     uint32_t currentEip = g_modules[0].simBase + g_modules[0].entryPointRVA;
     uint32_t totalSteps = 0;
-    const uint32_t maxTotalSteps = 200000000;
+    const uint32_t maxTotalSteps = 600000000;
     X86StepResult stepRes{};
 
-    for (int iter = 0; iter < 10000000 && totalSteps < maxTotalSteps; ++iter) {
+    for (int iter = 0; iter < 20000000 && totalSteps < maxTotalSteps; ++iter) {
         stepRes = cpu->stepInstructions(currentEip, maxTotalSteps - totalSteps);
         totalSteps += stepRes.stepsExecuted;
         if (stepRes.haltedOnThunk) {
