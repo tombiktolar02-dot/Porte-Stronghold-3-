@@ -437,8 +437,8 @@ static std::string runStage5BootstrapProbe() {
         if ((iter & 255) == 255) {
             auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - loopStart).count();
-            if (elapsedMs >= 20000) {
-                stepRes.reason = "WATCHDOG_TIMEOUT_20S";
+            if (elapsedMs >= 90000) {
+                stepRes.reason = "WATCHDOG_TIMEOUT_90S";
                 stepRes.haltedOnThunk = false;
                 stepRes.stopAddress = currentEip;
                 break;
@@ -464,8 +464,8 @@ static std::string runStage5BootstrapProbe() {
             currentEip = cpu->readRegister(X86Reg::EIP);
             auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - loopStart).count();
-            if (elapsedMs >= 20000) {
-                stepRes.reason = "WATCHDOG_TIMEOUT_20S";
+            if (elapsedMs >= 90000) {
+                stepRes.reason = "WATCHDOG_TIMEOUT_90S";
                 stepRes.stopAddress = currentEip;
                 break;
             }
@@ -480,7 +480,7 @@ static std::string runStage5BootstrapProbe() {
              stepRes.reason.c_str(), totalSteps, dispatcher.handledLog().size(), stepRes.stopAddress);
     out << sbuf;
 
-    if (stepRes.reason == "WATCHDOG_TIMEOUT_20S") {
+    if (stepRes.reason == "WATCHDOG_TIMEOUT_90S") {
         snprintf(sbuf, sizeof(sbuf),
                  "[WATCHDOG] RealHLE=%u | LastHLE=0x%08X (%s) | LastRet=0x%08X | EAX=0x%08X ESP=0x%08X\n",
                  hleExecCount, lastHleAddr, lastHleSym.c_str(), lastHleRet,
