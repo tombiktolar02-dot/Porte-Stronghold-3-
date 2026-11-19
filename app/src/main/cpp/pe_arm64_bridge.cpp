@@ -352,20 +352,44 @@ static std::string runStage5BootstrapProbe() {
             return dispatcher.onThunkTrap(thunkAddr, retAddr);
         });
 
-    uint32_t exeEP = g_modules[0].simBase + g_modules[0].entryPointRVA;
-    X86StepResult stepRes = cpu->stepInstructions(exeEP, 100);
+    uint32_t currentEip = g_modules[0].simBase + g_modules[0].entryPointRVA;
+    uint32_t totalSteps = 0;
+    const uint32_t maxTotalSteps = 5000;
+    X86StepResult stepRes{};
+
+    for (int iter = 0; iter < 32 && totalSteps < maxTotalSteps; ++iter) {
+        stepRes = cpu->stepInstructions(currentEip, maxTotalSteps - totalSteps);
+        totalSteps += stepRes.stepsExecuted;
+        if (stepRes.haltedOnThunk) {
+            uint32_t nextEip = 0;
+            if (dispatcher.handleThunkCall(cpu.get(),
+                                           dispatcher.lastTrappedAddress(),
+                                           dispatcher.lastReturnAddress(),
+                                           nextEip)) {
+                currentEip = nextEip;
+                continue;
+            }
+            break; // Unimplemented API reached
+        }
+        break; // Faulted or max steps reached
+    }
 
     char sbuf[256];
     snprintf(sbuf, sizeof(sbuf),
-             "Trace Result: %s | Steps: %u | StopEIP: 0x%08X\n",
-             stepRes.reason.c_str(), stepRes.stepsExecuted, stepRes.stopAddress);
+             "Stage 6-A Loop: %s | TotalSteps: %u | HLE Calls: %zu | StopEIP: 0x%08X\n",
+             stepRes.reason.c_str(), totalSteps, dispatcher.handledLog().size(), stepRes.stopAddress);
     out << sbuf;
+
+    for (size_t i = 0; i < dispatcher.handledLog().size(); ++i) {
+        out << "  [HLE OK #" << (i + 1) << "] " << dispatcher.handledLog()[i] << "\n";
+    }
 
     if (stepRes.haltedOnThunk) {
         snprintf(sbuf, sizeof(sbuf),
-                 "[TRAP OK] First Win32 Call -> 0x%08X (%s)\n",
+                 "[NEXT TRAP] 0x%08X (%s) | Ret: 0x%08X\n",
                  dispatcher.lastTrappedAddress(),
-                 dispatcher.lastTrappedSymbol().c_str());
+                 dispatcher.lastTrappedSymbol().c_str(),
+                 dispatcher.lastReturnAddress());
         out << sbuf;
     }
 
