@@ -2065,6 +2065,163 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    static FILE* s_cFiles[64] = { nullptr };
+    auto readGuestCStrLocal = [&](uint32_t addr) -> std::string {
+        std::string out;
+        if (addr == 0) return out;
+        for (int i = 0; i < 512; ++i) {
+            char ch = 0;
+            cpu->readGuestMemory(addr + i, &ch, 1);
+            if (ch == 0) break;
+            out.push_back(ch);
+        }
+        return out;
+    };
+    auto getHostFile = [&](uint32_t handle) -> FILE* {
+        if (handle < 0x6F000000u) return nullptr;
+        uint32_t idx = (handle - 0x6F000000u) >> 5;
+        if (idx >= 64) return nullptr;
+        return s_cFiles[idx];
+    };
+
+    if (sym == "msvcr100.dll!fopen") {
+        uint32_t pathPtr = 0, modePtr = 0;
+        cpu->readGuestMemory(esp + 4, &pathPtr, 4);
+        cpu->readGuestMemory(esp + 8, &modePtr, 4);
+        std::string path = readGuestCStrLocal(pathPtr);
+        std::string mode = readGuestCStrLocal(modePtr);
+        for (char& c : path) { if (c == 0x5C) c = 0x2F; }
+        uint32_t guestHandle = 0;
+        FILE* f = (!path.empty() && !mode.empty()) ? fopen(path.c_str(), mode.c_str()) : nullptr;
+        if (f != nullptr) {
+            for (uint32_t i = 1; i < 64; ++i) {
+                if (s_cFiles[i] == nullptr) {
+                    s_cFiles[i] = f;
+                    guestHandle = 0x6F000000u + (i << 5);
+                    break;
+                }
+            }
+            if (guestHandle == 0) fclose(f);
+        }
+        cpu->writeRegister(X86Reg::EAX, guestHandle);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!fclose") {
+        uint32_t handle = 0;
+        cpu->readGuestMemory(esp + 4, &handle, 4);
+        uint32_t res = 0xFFFFFFFFu;
+        if (handle >= 0x6F000000u) {
+            uint32_t idx = (handle - 0x6F000000u) >> 5;
+            if (idx < 64 && s_cFiles[idx] != nullptr) {
+                res = static_cast<uint32_t>(fclose(s_cFiles[idx]));
+                s_cFiles[idx] = nullptr;
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, res);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!fread") {
+        uint32_t bufPtr = 0, sz = 0, cnt = 0, handle = 0;
+        cpu->readGuestMemory(esp + 4, &bufPtr, 4);
+        cpu->readGuestMemory(esp + 8, &sz, 4);
+        cpu->readGuestMemory(esp + 12, &cnt, 4);
+        cpu->readGuestMemory(esp + 16, &handle, 4);
+        FILE* f = getHostFile(handle);
+        uint32_t readCnt = 0;
+        if (f != nullptr && bufPtr != 0 && sz > 0 && cnt > 0) {
+            uint32_t total = sz * cnt;
+            std::vector<uint8_t> tmp(total);
+            readCnt = static_cast<uint32_t>(fread(tmp.data(), sz, cnt, f));
+            if (readCnt > 0) cpu->writeGuestMemory(bufPtr, tmp.data(), readCnt * sz);
+        }
+        cpu->writeRegister(X86Reg::EAX, readCnt);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!fwrite") {
+        uint32_t bufPtr = 0, sz = 0, cnt = 0, handle = 0;
+        cpu->readGuestMemory(esp + 4, &bufPtr, 4);
+        cpu->readGuestMemory(esp + 8, &sz, 4);
+        cpu->readGuestMemory(esp + 12, &cnt, 4);
+        cpu->readGuestMemory(esp + 16, &handle, 4);
+        FILE* f = getHostFile(handle);
+        uint32_t writtenCnt = 0;
+        if (f != nullptr && bufPtr != 0 && sz > 0 && cnt > 0) {
+            uint32_t total = sz * cnt;
+            std::vector<uint8_t> tmp(total);
+            cpu->readGuestMemory(bufPtr, tmp.data(), total);
+            writtenCnt = static_cast<uint32_t>(fwrite(tmp.data(), sz, cnt, f));
+        }
+        cpu->writeRegister(X86Reg::EAX, writtenCnt);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!fseek") {
+        uint32_t handle = 0, origin = 0;
+        int32_t offset = 0;
+        cpu->readGuestMemory(esp + 4, &handle, 4);
+        cpu->readGuestMemory(esp + 8, &offset, 4);
+        cpu->readGuestMemory(esp + 12, &origin, 4);
+        FILE* f = getHostFile(handle);
+        uint32_t res = (f != nullptr) ? static_cast<uint32_t>(fseek(f, offset, static_cast<int>(origin))) : 0xFFFFFFFFu;
+        cpu->writeRegister(X86Reg::EAX, res);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!ftell") {
+        uint32_t handle = 0;
+        cpu->readGuestMemory(esp + 4, &handle, 4);
+        FILE* f = getHostFile(handle);
+        uint32_t res = (f != nullptr) ? static_cast<uint32_t>(ftell(f)) : 0xFFFFFFFFu;
+        cpu->writeRegister(X86Reg::EAX, res);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!fflush") {
+        uint32_t handle = 0;
+        cpu->readGuestMemory(esp + 4, &handle, 4);
+        FILE* f = getHostFile(handle);
+        if (f != nullptr) fflush(f);
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!feof" || sym == "msvcr100.dll!ferror") {
+        uint32_t handle = 0;
+        cpu->readGuestMemory(esp + 4, &handle, 4);
+        FILE* f = getHostFile(handle);
+        uint32_t res = 0;
+        if (f != nullptr) res = (sym == "msvcr100.dll!feof") ? static_cast<uint32_t>(feof(f)) : static_cast<uint32_t>(ferror(f));
+        cpu->writeRegister(X86Reg::EAX, res);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     if (sym == "msvcr100.dll!___lc_codepage_func") {
         cpu->writeRegister(X86Reg::EAX, 0u); // C locale
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
