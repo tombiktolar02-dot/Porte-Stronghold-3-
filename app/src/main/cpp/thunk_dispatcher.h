@@ -2,6 +2,7 @@
 #define SH3_THUNK_DISPATCHER_H
 
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -32,17 +33,42 @@ private:
     uint32_t    m_nextTlsIndex   = 1u;
     std::unordered_map<uint32_t, uint32_t> m_tlsSlots;
     uint32_t    m_heapCursor = 0x20000000u;
-    uint32_t    m_heapEnd    = 0x22000000u;
+    uint32_t    m_heapEnd    = 0x30000000u;
     std::unordered_map<uint32_t, uint32_t> m_allocSizes;
+    std::unordered_map<uint32_t, std::vector<uint32_t>> m_freeBins;
+    uint32_t    m_oomCount   = 0;
 
     uint32_t allocGuest(uint32_t size) {
         if (size == 0) size = 16;
         uint32_t aligned = (size + 15u) & ~15u;
-        if (m_heapCursor + aligned > m_heapEnd) return 0u;
+        auto bit = m_freeBins.find(aligned);
+        if (bit != m_freeBins.end() && !bit->second.empty()) {
+            uint32_t ptr = bit->second.back();
+            bit->second.pop_back();
+            m_allocSizes[ptr] = size;
+            return ptr;
+        }
+        if (m_heapCursor + aligned > m_heapEnd) {
+            if (++m_oomCount <= 5) {
+                char oom[96];
+                snprintf(oom, sizeof(oom), "HEAP_OOM(req=%u, used=%uMB)", size, (m_heapCursor - 0x20000000u) >> 20);
+                m_handledLog.push_back(oom);
+            }
+            return 0u;
+        }
         uint32_t ptr = m_heapCursor;
         m_heapCursor += aligned;
         m_allocSizes[ptr] = size;
         return ptr;
+    }
+
+    void freeGuest(uint32_t ptr) {
+        if (ptr < 0x20000000u || ptr >= m_heapEnd) return;
+        auto it = m_allocSizes.find(ptr);
+        if (it == m_allocSizes.end()) return;
+        uint32_t aligned = (it->second + 15u) & ~15u;
+        m_allocSizes.erase(it);
+        m_freeBins[aligned].push_back(ptr);
     }
 };
 

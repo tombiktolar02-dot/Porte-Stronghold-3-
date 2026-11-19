@@ -270,6 +270,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (m_handledLog.size() > 8192) m_handledLog.erase(m_handledLog.begin(), m_handledLog.begin() + 4096);
     if (sym == "msvcr100.dll!malloc" ||
         sym == "msvcr100.dll!??2@YAPAXI@Z" ||
         sym == "msvcr100.dll!??_U@YAPAXI@Z") {
@@ -325,9 +326,11 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
     if (sym == "msvcr100.dll!free" ||
         sym == "msvcr100.dll!??3@YAXPAX@Z" ||
         sym == "msvcr100.dll!??_V@YAXPAX@Z") {
+        uint32_t ptr = 0;
+        cpu->readGuestMemory(esp + 4, &ptr, 4);
+        freeGuest(ptr);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
         return true;
     }
 
@@ -2690,7 +2693,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
                 }
             }
             if (cbUnhandled) return false;
-            m_handledLog.resize(logMark);
+            if (m_handledLog.size() > logMark) m_handledLog.resize(logMark);
             char qbuf[96];
             snprintf(qbuf, sizeof(qbuf), "msvcr100.dll!qsort(n=%u,sz=%u)", num, elemSz);
             m_handledLog.push_back(qbuf);
@@ -2718,7 +2721,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
                 }
             }
             if (cbUnhandled) return false;
-            m_handledLog.resize(logMark);
+            if (m_handledLog.size() > logMark) m_handledLog.resize(logMark);
             cpu->writeRegister(X86Reg::EAX, foundAddr);
             cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
             outNextEip = returnAddr;
