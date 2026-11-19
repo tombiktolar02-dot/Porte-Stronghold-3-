@@ -2003,6 +2003,14 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "msvcr100.dll!__uncaught_exception") {
+        cpu->writeRegister(X86Reg::EAX, 0u); // false: no active exception
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     if (sym == "msvcr100.dll!___lc_codepage_func") {
         cpu->writeRegister(X86Reg::EAX, 0u); // C locale
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
