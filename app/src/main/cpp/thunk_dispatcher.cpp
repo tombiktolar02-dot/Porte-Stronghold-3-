@@ -2152,7 +2152,14 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EAX, readCnt);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        static uint32_t s_freadCount = 0;
+        if ((++s_freadCount % 10000) == 0 && f != nullptr) {
+            char pbuf[128];
+            snprintf(pbuf, sizeof(pbuf), "VFS_PROGRESS(reads=%u, pos=%ld, sz=%u, cnt=%u, got=%u)", s_freadCount, ftell(f), sz, cnt, readCnt);
+            m_handledLog.push_back(pbuf);
+        } else {
+            m_handledLog.push_back(sym);
+        }
         return true;
     }
 
