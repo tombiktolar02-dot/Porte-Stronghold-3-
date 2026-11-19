@@ -392,10 +392,6 @@ static std::string runStage5BootstrapProbe() {
              stepRes.reason.c_str(), totalSteps, dispatcher.handledLog().size(), stepRes.stopAddress);
     out << sbuf;
 
-    for (size_t i = 0; i < dispatcher.handledLog().size(); ++i) {
-        out << "  [HLE OK #" << (i + 1) << "] " << dispatcher.handledLog()[i] << "\n";
-    }
-
     if (stepRes.haltedOnThunk) {
         snprintf(sbuf, sizeof(sbuf),
                  "[NEXT TRAP] 0x%08X (%s) | Ret: 0x%08X\n",
@@ -403,6 +399,17 @@ static std::string runStage5BootstrapProbe() {
                  dispatcher.lastTrappedSymbol().c_str(),
                  dispatcher.lastReturnAddress());
         out << sbuf;
+    }
+
+    const auto& hlog = dispatcher.handledLog();
+    for (size_t i = 0; i < hlog.size(); ) {
+        size_t j = i + 1;
+        while (j < hlog.size() && hlog[j] == hlog[i]) ++j;
+        size_t cnt = j - i;
+        out << "  [HLE OK #" << (i + 1) << "] " << hlog[i];
+        if (cnt > 1) out << " (x" << cnt << ")";
+        out << "\n";
+        i = j;
     }
 
     destroyWin32GuestEnvironment(envState);
