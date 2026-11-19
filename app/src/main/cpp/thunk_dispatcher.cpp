@@ -181,18 +181,73 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
-    if (sym == "msvcr100.dll!_initterm_e") {
-        cpu->writeRegister(X86Reg::EAX, 0u); // 0 = success
-        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl: caller cleans args
+    if (sym == "msvcr100.dll!_initterm_e" || sym == "msvcr100.dll!_initterm") {
+        const bool isE = (sym == "msvcr100.dll!_initterm_e");
+        uint32_t pfbegin = 0, pfend = 0;
+        cpu->readGuestMemory(esp + 4, &pfbegin, 4);
+        cpu->readGuestMemory(esp + 8, &pfend, 4);
+        uint32_t retCode = 0;
+        uint32_t ranCount = 0;
+        bool cbAbort = false;
+        if (pfbegin != 0 && pfend > pfbegin && (pfend - pfbegin) <= 0x100000u) {
+            const uint32_t sentinelRet = 0x7000FFD0u;
+            for (uint32_t p = pfbegin; p + 4 <= pfend; p += 4) {
+                uint32_t fn = 0;
+                cpu->readGuestMemory(p, &fn, 4);
+                if (fn == 0) continue;
+                uint32_t savedEsp = cpu->readRegister(X86Reg::ESP);
+                uint32_t savedEbp = cpu->readRegister(X86Reg::EBP);
+                uint32_t savedEbx = cpu->readRegister(X86Reg::EBX);
+                uint32_t savedEsi = cpu->readRegister(X86Reg::ESI);
+                uint32_t savedEdi = cpu->readRegister(X86Reg::EDI);
+                uint32_t savedEfl = cpu->readRegister(X86Reg::EFLAGS);
+                uint32_t cbEsp = savedEsp - 64u;
+                cpu->writeGuestMemory(cbEsp, &sentinelRet, 4);
+                cpu->writeRegister(X86Reg::ESP, cbEsp);
+                uint32_t curEip = fn;
+                for (int guard = 0; guard < 10000; ++guard) {
+                    X86StepResult st = cpu->stepInstructions(curEip, 200000);
+                    if (st.faulted) {
+                        if (m_handledLog.size() < 4096) m_handledLog.push_back("INITTERM_FAULT: " + st.reason);
+                        cbAbort = true;
+                        break;
+                    }
+                    if (st.haltedOnThunk) {
+                        if (st.stopAddress == sentinelRet) break;
+                        uint32_t curEsp = cpu->readRegister(X86Reg::ESP);
+                        uint32_t innerRet = 0;
+                        cpu->readGuestMemory(curEsp, &innerRet, 4);
+                        uint32_t nextAfterThunk = innerRet;
+                        if (!handleThunkCall(cpu, st.stopAddress, innerRet, nextAfterThunk)) {
+                            cbAbort = true;
+                            break;
+                        }
+                        curEip = nextAfterThunk;
+                        continue;
+                    }
+                    uint32_t nextIp = cpu->readRegister(X86Reg::EIP);
+                    if (nextIp == sentinelRet || nextIp == curEip) break;
+                    curEip = nextIp;
+                }
+                uint32_t fnRet = cpu->readRegister(X86Reg::EAX);
+                cpu->writeRegister(X86Reg::ESP, savedEsp);
+                cpu->writeRegister(X86Reg::EBP, savedEbp);
+                cpu->writeRegister(X86Reg::EBX, savedEbx);
+                cpu->writeRegister(X86Reg::ESI, savedEsi);
+                cpu->writeRegister(X86Reg::EDI, savedEdi);
+                cpu->writeRegister(X86Reg::EFLAGS, savedEfl);
+                if (cbAbort) break;
+                ++ranCount;
+                if (isE && fnRet != 0) { retCode = fnRet; break; }
+            }
+        }
+        if (cbAbort) return false;
+        if (isE) cpu->writeRegister(X86Reg::EAX, retCode);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        logSym(sym);
-        return true;
-    }
-
-    if (sym == "msvcr100.dll!_initterm") {
-        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl: caller cleans args
-        outNextEip = returnAddr;
-        logSym(sym);
+        char ibuf[96];
+        snprintf(ibuf, sizeof(ibuf), "%s(ran=%u,ret=%u)", sym.c_str(), ranCount, retCode);
+        if (m_handledLog.size() < 4096) m_handledLog.push_back(ibuf);
         return true;
     }
 
