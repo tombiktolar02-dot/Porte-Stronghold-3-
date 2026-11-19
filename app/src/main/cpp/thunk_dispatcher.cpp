@@ -423,5 +423,13 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "user32.dll!EnumDisplayMonitors" || sym == "dynamic!EnumDisplayMonitors") {
+        cpu->writeRegister(X86Reg::EAX, 1u);       // TRUE
+        cpu->writeRegister(X86Reg::ESP, esp + 20); // stdcall: retAddr + 4 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }

@@ -238,7 +238,7 @@ private:
         auto* self = reinterpret_cast<UnicornX86CPU*>(user_data);
         uint32_t addr32 = static_cast<uint32_t>(address);
 
-        if ((type == UC_MEM_FETCH_UNMAPPED || type == UC_MEM_FETCH_PROT) && addr32 >= self->m_thunkStart && addr32 < self->m_thunkEnd) {
+        if ((type == UC_MEM_FETCH_UNMAPPED || type == UC_MEM_FETCH_PROT) && addr32 >= self->m_thunkStart && addr32 < 0x70010000u) {
             uint32_t esp = 0, retAddr = 0;
             uc_reg_read(uc, UC_X86_REG_ESP, &esp);
             uc_mem_read(uc, esp, &retAddr, 4);
