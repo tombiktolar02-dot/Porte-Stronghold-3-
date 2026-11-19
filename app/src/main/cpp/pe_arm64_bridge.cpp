@@ -1,3 +1,4 @@
+#include <mutex>
 #include <jni.h>
 #include <android/log.h>
 #include <sys/mman.h>
@@ -430,6 +431,9 @@ Java_com_bolt_stronghold3wrapper_MainActivity_inspectEngineBinaries(
     for (auto& m : g_modules) {
         if (m.mappedBase) munmap(m.mappedBase, m.sizeOfImage);
     }
+    static std::mutex g_bridgeMutex;
+    std::lock_guard<std::mutex> bridgeLock(g_bridgeMutex);
+
     g_modules.clear();
     g_modIndex.clear();
     g_thunkTable.clear();
