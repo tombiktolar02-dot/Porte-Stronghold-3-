@@ -456,5 +456,54 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "kernel32.dll!InterlockedIncrement") {
+        uint32_t ptr = 0;
+        cpu->readGuestMemory(esp + 4, &ptr, 4);
+        uint32_t val = 0;
+        if (ptr != 0) {
+            cpu->readGuestMemory(ptr, &val, 4);
+            val += 1u;
+            cpu->writeGuestMemory(ptr, &val, 4);
+        }
+        cpu->writeRegister(X86Reg::EAX, val);
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!InterlockedDecrement") {
+        uint32_t ptr = 0;
+        cpu->readGuestMemory(esp + 4, &ptr, 4);
+        uint32_t val = 0;
+        if (ptr != 0) {
+            cpu->readGuestMemory(ptr, &val, 4);
+            val -= 1u;
+            cpu->writeGuestMemory(ptr, &val, 4);
+        }
+        cpu->writeRegister(X86Reg::EAX, val);
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!InterlockedExchangeAdd") {
+        uint32_t ptr = 0, addVal = 0;
+        cpu->readGuestMemory(esp + 4, &ptr,    4);
+        cpu->readGuestMemory(esp + 8, &addVal, 4);
+        uint32_t oldVal = 0;
+        if (ptr != 0) {
+            cpu->readGuestMemory(ptr, &oldVal, 4);
+            uint32_t newVal = oldVal + addVal;
+            cpu->writeGuestMemory(ptr, &newVal, 4);
+        }
+        cpu->writeRegister(X86Reg::EAX, oldVal);
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: retAddr + 2 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }
