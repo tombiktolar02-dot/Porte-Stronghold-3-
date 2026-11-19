@@ -347,7 +347,7 @@ static std::string runStage5BootstrapProbe() {
     dispatcher.buildReverseMap(g_thunkTable);
     {
         const char cmdA[] = "Stronghold3.exe";
-        const uint16_t cmdW[] = {S,t,r,o,n,g,h,o,l,d,3,.,e,x,e,0};
+        const char16_t cmdW[] = u"Stronghold3.exe";
         uint32_t ptrA = 0x7000F000u;
         uint32_t ptrW = 0x7000F100u;
         cpu->writeGuestMemory(ptrA, cmdA, sizeof(cmdA));
