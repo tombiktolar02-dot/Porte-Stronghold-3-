@@ -380,5 +380,23 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "kernel32.dll!GetLastError") {
+        cpu->writeRegister(X86Reg::EAX, m_lastError);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall: retAddr only
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!SetLastError") {
+        uint32_t errCode = 0;
+        cpu->readGuestMemory(esp + 4, &errCode, 4);
+        m_lastError = errCode;
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }
