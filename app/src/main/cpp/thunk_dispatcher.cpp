@@ -505,5 +505,49 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "kernel32.dll!InitializeCriticalSection") {
+        uint32_t csPtr = 0;
+        cpu->readGuestMemory(esp + 4, &csPtr, 4);
+        if (csPtr != 0) {
+            uint8_t zeros[24] = {};
+            cpu->writeGuestMemory(csPtr, zeros, sizeof(zeros));
+        }
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!InitializeCriticalSectionAndSpinCount") {
+        uint32_t csPtr = 0;
+        cpu->readGuestMemory(esp + 4, &csPtr, 4);
+        if (csPtr != 0) {
+            uint8_t zeros[24] = {};
+            cpu->writeGuestMemory(csPtr, zeros, sizeof(zeros));
+        }
+        cpu->writeRegister(X86Reg::EAX, 1u);       // TRUE
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: retAddr + 2 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!EnterCriticalSection" ||
+        sym == "kernel32.dll!LeaveCriticalSection" ||
+        sym == "kernel32.dll!DeleteCriticalSection") {
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!TryEnterCriticalSection") {
+        cpu->writeRegister(X86Reg::EAX, 1u);      // TRUE
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }
