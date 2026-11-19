@@ -202,5 +202,36 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "kernel32.dll!LoadLibraryA") {
+        uint32_t namePtr = 0;
+        cpu->readGuestMemory(esp + 4, &namePtr, 4);
+        char nameBuf[128] = {};
+        if (namePtr != 0) {
+            cpu->readGuestMemory(namePtr, nameBuf, sizeof(nameBuf) - 1);
+            nameBuf[sizeof(nameBuf) - 1] = '\0';
+        }
+        cpu->writeRegister(X86Reg::EAX, 0x61000000u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym + "(\"" + std::string(nameBuf) + "\")");
+        return true;
+    }
+
+    if (sym == "kernel32.dll!LoadLibraryW") {
+        cpu->writeRegister(X86Reg::EAX, 0x61000000u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!FreeLibrary") {
+        cpu->writeRegister(X86Reg::EAX, 1u); // TRUE
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }
