@@ -233,5 +233,13 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "msvcr100.dll!_controlfp" || sym == "msvcr100.dll!_control87") {
+        cpu->writeRegister(X86Reg::EAX, 0x0008001Fu); // Default x87 FPU control word
+        cpu->writeRegister(X86Reg::ESP, esp + 4);     // cdecl: caller cleans args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }
