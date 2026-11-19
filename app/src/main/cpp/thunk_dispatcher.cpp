@@ -1658,5 +1658,284 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    auto readWStr = [&](uint32_t addr, size_t maxChars = 65536) -> std::vector<uint16_t> {
+        std::vector<uint16_t> res;
+        if (addr == 0) return res;
+        for (size_t i = 0; i < maxChars; ++i) {
+            uint16_t wc = 0;
+            if (!cpu->readGuestMemory(addr + static_cast<uint32_t>(i * 2), &wc, 2) || wc == 0) break;
+            res.push_back(wc);
+        }
+        return res;
+    };
+
+    if (sym == "kernel32.dll!lstrlenA") {
+        uint32_t ptr = 0;
+        cpu->readGuestMemory(esp + 4, &ptr, 4);
+        uint32_t len = (ptr != 0) ? static_cast<uint32_t>(readCStr(ptr, 65536).size()) : 0u;
+        cpu->writeRegister(X86Reg::EAX, len);
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!lstrlenW") {
+        uint32_t ptr = 0;
+        cpu->readGuestMemory(esp + 4, &ptr, 4);
+        uint32_t len = (ptr != 0) ? static_cast<uint32_t>(readWStr(ptr, 65536).size()) : 0u;
+        cpu->writeRegister(X86Reg::EAX, len);
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!lstrcpyA") {
+        uint32_t dst = 0, src = 0;
+        cpu->readGuestMemory(esp + 4, &dst, 4);
+        cpu->readGuestMemory(esp + 8, &src, 4);
+        if (dst != 0 && src != 0) {
+            std::string str = readCStr(src, 65536);
+            cpu->writeGuestMemory(dst, str.c_str(), str.size() + 1);
+        }
+        cpu->writeRegister(X86Reg::EAX, dst);
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!lstrcpyW") {
+        uint32_t dst = 0, src = 0;
+        cpu->readGuestMemory(esp + 4, &dst, 4);
+        cpu->readGuestMemory(esp + 8, &src, 4);
+        if (dst != 0 && src != 0) {
+            auto wstr = readWStr(src, 65536);
+            wstr.push_back(0);
+            cpu->writeGuestMemory(dst, wstr.data(), wstr.size() * 2);
+        }
+        cpu->writeRegister(X86Reg::EAX, dst);
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!lstrcpynA") {
+        uint32_t dst = 0, src = 0;
+        int32_t maxLen = 0;
+        cpu->readGuestMemory(esp + 4,  &dst,    4);
+        cpu->readGuestMemory(esp + 8,  &src,    4);
+        cpu->readGuestMemory(esp + 12, &maxLen, 4);
+        if (dst != 0 && maxLen > 0) {
+            std::string str = (src != 0) ? readCStr(src, static_cast<size_t>(maxLen)) : "";
+            size_t copyLen = (str.size() < static_cast<size_t>(maxLen - 1)) ? str.size() : static_cast<size_t>(maxLen - 1);
+            if (copyLen > 0) cpu->writeGuestMemory(dst, str.c_str(), copyLen);
+            uint8_t nul = 0;
+            cpu->writeGuestMemory(dst + static_cast<uint32_t>(copyLen), &nul, 1);
+        }
+        cpu->writeRegister(X86Reg::EAX, dst);
+        cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: 3 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!lstrcpynW") {
+        uint32_t dst = 0, src = 0;
+        int32_t maxLen = 0;
+        cpu->readGuestMemory(esp + 4,  &dst,    4);
+        cpu->readGuestMemory(esp + 8,  &src,    4);
+        cpu->readGuestMemory(esp + 12, &maxLen, 4);
+        if (dst != 0 && maxLen > 0) {
+            auto wstr = (src != 0) ? readWStr(src, static_cast<size_t>(maxLen)) : std::vector<uint16_t>{};
+            size_t copyLen = (wstr.size() < static_cast<size_t>(maxLen - 1)) ? wstr.size() : static_cast<size_t>(maxLen - 1);
+            if (copyLen > 0) cpu->writeGuestMemory(dst, wstr.data(), copyLen * 2);
+            uint16_t nul = 0;
+            cpu->writeGuestMemory(dst + static_cast<uint32_t>(copyLen * 2), &nul, 2);
+        }
+        cpu->writeRegister(X86Reg::EAX, dst);
+        cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: 3 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!lstrcatA") {
+        uint32_t dst = 0, src = 0;
+        cpu->readGuestMemory(esp + 4, &dst, 4);
+        cpu->readGuestMemory(esp + 8, &src, 4);
+        if (dst != 0 && src != 0) {
+            std::string combined = readCStr(dst, 65536) + readCStr(src, 65536);
+            cpu->writeGuestMemory(dst, combined.c_str(), combined.size() + 1);
+        }
+        cpu->writeRegister(X86Reg::EAX, dst);
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!lstrcatW") {
+        uint32_t dst = 0, src = 0;
+        cpu->readGuestMemory(esp + 4, &dst, 4);
+        cpu->readGuestMemory(esp + 8, &src, 4);
+        if (dst != 0 && src != 0) {
+            auto wdst = readWStr(dst, 65536);
+            auto wsrc = readWStr(src, 65536);
+            wdst.insert(wdst.end(), wsrc.begin(), wsrc.end());
+            wdst.push_back(0);
+            cpu->writeGuestMemory(dst, wdst.data(), wdst.size() * 2);
+        }
+        cpu->writeRegister(X86Reg::EAX, dst);
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!lstrcmpA" || sym == "kernel32.dll!lstrcmpiA") {
+        uint32_t pA = 0, pB = 0;
+        cpu->readGuestMemory(esp + 4, &pA, 4);
+        cpu->readGuestMemory(esp + 8, &pB, 4);
+        bool nocase = (sym == "kernel32.dll!lstrcmpiA");
+        std::string a = readCStr(pA, 65536);
+        std::string b = readCStr(pB, 65536);
+        int32_t res = 0;
+        size_t len = (a.size() < b.size()) ? a.size() : b.size();
+        for (size_t i = 0; i < len; ++i) {
+            uint8_t ca = static_cast<uint8_t>(a[i]);
+            uint8_t cb = static_cast<uint8_t>(b[i]);
+            if (nocase) {
+                if (ca >= 0x41u && ca <= 0x5Au) ca += 32u;
+                if (cb >= 0x41u && cb <= 0x5Au) cb += 32u;
+            }
+            if (ca != cb) { res = (ca < cb) ? -1 : 1; break; }
+        }
+        if (res == 0 && a.size() != b.size()) res = (a.size() < b.size()) ? -1 : 1;
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(res));
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!lstrcmpW" || sym == "kernel32.dll!lstrcmpiW") {
+        uint32_t pA = 0, pB = 0;
+        cpu->readGuestMemory(esp + 4, &pA, 4);
+        cpu->readGuestMemory(esp + 8, &pB, 4);
+        bool nocase = (sym == "kernel32.dll!lstrcmpiW");
+        auto a = readWStr(pA, 65536);
+        auto b = readWStr(pB, 65536);
+        int32_t res = 0;
+        size_t len = (a.size() < b.size()) ? a.size() : b.size();
+        for (size_t i = 0; i < len; ++i) {
+            uint16_t ca = a[i], cb = b[i];
+            if (nocase) {
+                if (ca >= 0x41u && ca <= 0x5Au) ca += 32u;
+                if (cb >= 0x41u && cb <= 0x5Au) cb += 32u;
+            }
+            if (ca != cb) { res = (ca < cb) ? -1 : 1; break; }
+        }
+        if (res == 0 && a.size() != b.size()) res = (a.size() < b.size()) ? -1 : 1;
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(res));
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!MultiByteToWideChar") {
+        uint32_t mbPtr = 0, wcPtr = 0;
+        int32_t cbMultiByte = 0, cchWideChar = 0;
+        cpu->readGuestMemory(esp + 12, &mbPtr,       4);
+        cpu->readGuestMemory(esp + 16, &cbMultiByte, 4);
+        cpu->readGuestMemory(esp + 20, &wcPtr,       4);
+        cpu->readGuestMemory(esp + 24, &cchWideChar, 4);
+        std::vector<uint16_t> outW;
+        if (mbPtr != 0) {
+            if (cbMultiByte < 0) {
+                std::string str = readCStr(mbPtr, 65536);
+                outW.reserve(str.size() + 1);
+                for (char ch : str) outW.push_back(static_cast<uint8_t>(ch));
+                outW.push_back(0);
+            } else if (cbMultiByte > 0) {
+                std::vector<uint8_t> raw(static_cast<size_t>(cbMultiByte));
+                cpu->readGuestMemory(mbPtr, raw.data(), raw.size());
+                outW.reserve(raw.size());
+                for (uint8_t b : raw) outW.push_back(b);
+            }
+        }
+        uint32_t needed = static_cast<uint32_t>(outW.size());
+        uint32_t ret = needed;
+        if (cchWideChar > 0) {
+            if (static_cast<uint32_t>(cchWideChar) < needed) {
+                if (wcPtr != 0) cpu->writeGuestMemory(wcPtr, outW.data(), static_cast<size_t>(cchWideChar) * 2);
+                m_lastError = 122u; // ERROR_INSUFFICIENT_BUFFER
+                ret = 0u;
+            } else if (wcPtr != 0 && needed > 0) {
+                cpu->writeGuestMemory(wcPtr, outW.data(), outW.size() * 2);
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, ret);
+        cpu->writeRegister(X86Reg::ESP, esp + 28); // stdcall: 6 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!WideCharToMultiByte") {
+        uint32_t wcPtr = 0, mbPtr = 0, usedDefPtr = 0;
+        int32_t cchWideChar = 0, cbMultiByte = 0;
+        cpu->readGuestMemory(esp + 12, &wcPtr,       4);
+        cpu->readGuestMemory(esp + 16, &cchWideChar, 4);
+        cpu->readGuestMemory(esp + 20, &mbPtr,       4);
+        cpu->readGuestMemory(esp + 24, &cbMultiByte, 4);
+        cpu->readGuestMemory(esp + 32, &usedDefPtr,  4);
+        if (usedDefPtr != 0) {
+            uint32_t zero = 0u;
+            cpu->writeGuestMemory(usedDefPtr, &zero, 4);
+        }
+        std::vector<uint8_t> outB;
+        if (wcPtr != 0) {
+            if (cchWideChar < 0) {
+                auto wstr = readWStr(wcPtr, 65536);
+                outB.reserve(wstr.size() + 1);
+                for (uint16_t wc : wstr) outB.push_back(wc <= 0xFFu ? static_cast<uint8_t>(wc) : 0x3Fu);
+                outB.push_back(0);
+            } else if (cchWideChar > 0) {
+                std::vector<uint16_t> raw(static_cast<size_t>(cchWideChar));
+                cpu->readGuestMemory(wcPtr, raw.data(), raw.size() * 2);
+                outB.reserve(raw.size());
+                for (uint16_t wc : raw) outB.push_back(wc <= 0xFFu ? static_cast<uint8_t>(wc) : 0x3Fu);
+            }
+        }
+        uint32_t needed = static_cast<uint32_t>(outB.size());
+        uint32_t ret = needed;
+        if (cbMultiByte > 0) {
+            if (static_cast<uint32_t>(cbMultiByte) < needed) {
+                if (mbPtr != 0) cpu->writeGuestMemory(mbPtr, outB.data(), static_cast<size_t>(cbMultiByte));
+                m_lastError = 122u; // ERROR_INSUFFICIENT_BUFFER
+                ret = 0u;
+            } else if (mbPtr != 0 && needed > 0) {
+                cpu->writeGuestMemory(mbPtr, outB.data(), outB.size());
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, ret);
+        cpu->writeRegister(X86Reg::ESP, esp + 36); // stdcall: 8 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!GetACP" || sym == "kernel32.dll!GetOEMCP") {
+        cpu->writeRegister(X86Reg::EAX, 1252u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall: 0 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }
