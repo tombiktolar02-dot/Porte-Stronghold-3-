@@ -3417,6 +3417,75 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "user32.dll!FindWindowA" || sym == "dynamic!FindWindowA") {
+        uint32_t pCls = 0, pWnd = 0;
+        cpu->readGuestMemory(esp + 4, &pCls, 4);
+        cpu->readGuestMemory(esp + 8, &pWnd, 4);
+        char cls[48] = {}, wnd[48] = {};
+        for (int i = 0; i < 47 && pCls >= 0x10000u; ++i) { char c = 0; cpu->readGuestMemory(pCls + i, &c, 1); if (c == 0) break; cls[i] = c; }
+        for (int i = 0; i < 47 && pWnd >= 0x10000u; ++i) { char c = 0; cpu->readGuestMemory(pWnd + i, &c, 1); if (c == 0) break; wnd[i] = c; }
+        cpu->writeRegister(X86Reg::EAX, 0u); // NULL
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall (2 args)
+        outNextEip = returnAddr;
+        char fbuf[160];
+        snprintf(fbuf, sizeof(fbuf), "%s(\"%s\",\"%s\")->0", sym.c_str(), cls, wnd);
+        if (m_handledLog.size() < 4096) m_handledLog.push_back(fbuf);
+        return true;
+    }
+
+    if (sym == "user32.dll!FindWindowW" || sym == "dynamic!FindWindowW") {
+        cpu->writeRegister(X86Reg::EAX, 0u); // NULL
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall (2 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!FindWindowExA" || sym == "dynamic!FindWindowExA" ||
+        sym == "user32.dll!FindWindowExW" || sym == "dynamic!FindWindowExW") {
+        cpu->writeRegister(X86Reg::EAX, 0u); // NULL
+        cpu->writeRegister(X86Reg::ESP, esp + 20); // stdcall (4 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!GetConsoleWindow" || sym == "dynamic!GetConsoleWindow") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall (0 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!AttachConsole" || sym == "dynamic!AttachConsole") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!AllocConsole" || sym == "dynamic!AllocConsole" ||
+        sym == "kernel32.dll!FreeConsole" || sym == "dynamic!FreeConsole") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall (0 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!CheckRemoteDebuggerPresent" || sym == "dynamic!CheckRemoteDebuggerPresent") {
+        uint32_t pRes = 0;
+        cpu->readGuestMemory(esp + 8, &pRes, 4);
+        if (pRes != 0) { uint32_t zero = 0u; cpu->writeGuestMemory(pRes, &zero, 4); }
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall (2 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
     if (sym == "msvcr100.dll!___lc_codepage_func") {
         cpu->writeRegister(X86Reg::EAX, 0u); // C locale
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
