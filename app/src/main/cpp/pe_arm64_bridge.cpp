@@ -366,11 +366,68 @@ static std::string runStage5BootstrapProbe() {
             return dispatcher.onThunkTrap(thunkAddr, retAddr);
         });
 
-    uint32_t currentEip = g_modules[0].simBase + g_modules[0].entryPointRVA;
     uint32_t totalSteps = 0;
     const uint32_t maxTotalSteps = 600000000;
     X86StepResult stepRes{};
+    bool dllAbort = false;
+    {
+        const char* initOrder[] = {
+            "msvcp100.dll", "vbase100.dll", "vision100.dll", "pathengine.dll",
+            "havok.vplugin", "visionengineplugin.vplugin", "strongholdbase.dll", "supahfly.dll"
+        };
+        std::vector<size_t> order;
+        std::vector<bool> queued(g_modules.size(), false);
+        for (const char* n : initOrder) {
+            auto it = g_modIndex.find(n);
+            if (it != g_modIndex.end() && it->second > 0 && !queued[it->second]) {
+                order.push_back(it->second); queued[it->second] = true;
+            }
+        }
+        for (size_t i = 1; i < g_modules.size(); ++i) {
+            if (!queued[i]) order.push_back(i);
+        }
+        const uint32_t baseEsp = cpu->readRegister(X86Reg::ESP);
+        const uint32_t dllSentinel = 0x7000FFE0u;
+        for (size_t idx : order) {
+            const LoadedModule& mod = g_modules[idx];
+            if (mod.entryPointRVA == 0) continue;
+            uint32_t callEsp = baseEsp - 32u;
+            uint32_t args[4] = { dllSentinel, mod.simBase, 1u, 0u };
+            cpu->writeGuestMemory(callEsp, args, sizeof(args));
+            cpu->writeRegister(X86Reg::ESP, callEsp);
+            uint32_t dEip = mod.simBase + mod.entryPointRVA;
+            uint32_t dSteps = 0;
+            X86StepResult dRes{};
+            bool dDone = false;
+            for (int di = 0; di < 100000 && dSteps < 5000000; ++di) {
+                dRes = cpu->stepInstructions(dEip, 5000000 - dSteps);
+                dSteps += dRes.stepsExecuted;
+                if (dRes.haltedOnThunk) {
+                    if (dRes.stopAddress == dllSentinel) { dDone = true; break; }
+                    uint32_t nxt = 0;
+                    if (dispatcher.handleThunkCall(cpu.get(), dispatcher.lastTrappedAddress(), dispatcher.lastReturnAddress(), nxt)) {
+                        dEip = nxt; continue;
+                    }
+                    break;
+                }
+                break;
+            }
+            totalSteps += dSteps;
+            char dbuf[224];
+            if (dDone) {
+                snprintf(dbuf, sizeof(dbuf), "[DLLMAIN] %-26s -> OK (ret=%u, steps=%u)\n", mod.name.c_str(), cpu->readRegister(X86Reg::EAX), dSteps);
+                out << dbuf;
+            } else {
+                snprintf(dbuf, sizeof(dbuf), "[DLLMAIN] %-26s -> FAIL (%s, EIP=0x%08X)\n", mod.name.c_str(), dRes.reason.c_str(), dRes.stopAddress);
+                out << dbuf;
+                stepRes = dRes; dllAbort = true; break;
+            }
+        }
+        cpu->writeRegister(X86Reg::ESP, baseEsp);
+    }
+    uint32_t currentEip = g_modules[0].simBase + g_modules[0].entryPointRVA;
 
+    if (!dllAbort)
     for (int iter = 0; iter < 20000000 && totalSteps < maxTotalSteps; ++iter) {
         stepRes = cpu->stepInstructions(currentEip, maxTotalSteps - totalSteps);
         totalSteps += stepRes.stepsExecuted;
