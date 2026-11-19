@@ -1300,5 +1300,225 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "kernel32.dll!IsDebuggerPresent") {
+        cpu->writeRegister(X86Reg::EAX, 0u);      // FALSE
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall: 0 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!OutputDebugStringA") {
+        uint32_t strPtr = 0;
+        cpu->readGuestMemory(esp + 4, &strPtr, 4);
+        std::string msg = readCStr(strPtr, 256);
+        while (!msg.empty() && (msg.back() == 10 || msg.back() == 13)) msg.pop_back();
+        if (msg.size() > 64) msg.resize(64);
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym + "(\"" + msg + "\")");
+        return true;
+    }
+
+    if (sym == "kernel32.dll!OutputDebugStringW" || sym == "kernel32.dll!Sleep") {
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!SetUnhandledExceptionFilter") {
+        cpu->writeRegister(X86Reg::EAX, 0u);      // previous filter = NULL
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!UnhandledExceptionFilter") {
+        cpu->writeRegister(X86Reg::EAX, 1u);      // EXCEPTION_EXECUTE_HANDLER
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!QueryPerformanceFrequency") {
+        uint32_t lpFreq = 0;
+        cpu->readGuestMemory(esp + 4, &lpFreq, 4);
+        if (lpFreq != 0) {
+            uint64_t freq = 10000000ULL;
+            cpu->writeGuestMemory(lpFreq, &freq, 8);
+        }
+        cpu->writeRegister(X86Reg::EAX, 1u);      // TRUE
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!GetSystemInfo" || sym == "kernel32.dll!GetNativeSystemInfo") {
+        uint32_t lpInfo = 0;
+        cpu->readGuestMemory(esp + 4, &lpInfo, 4);
+        if (lpInfo != 0) {
+            uint32_t info[9] = {
+                0u,          // wProcessorArchitecture = INTEL, wReserved = 0
+                4096u,       // dwPageSize
+                0x00010000u, // lpMinimumApplicationAddress
+                0x7FFEFFFFu, // lpMaximumApplicationAddress
+                0x0000000Fu, // dwActiveProcessorMask (4 cores)
+                4u,          // dwNumberOfProcessors
+                586u,        // dwProcessorType
+                65536u,      // dwAllocationGranularity
+                6u           // wProcessorLevel = 6, wProcessorRevision = 0
+            };
+            cpu->writeGuestMemory(lpInfo, info, sizeof(info));
+        }
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!GlobalMemoryStatusEx") {
+        uint32_t lpBuf = 0;
+        cpu->readGuestMemory(esp + 4, &lpBuf, 4);
+        if (lpBuf != 0) {
+            uint32_t memLoad = 30u;
+            uint64_t totalPhys = 4ULL * 1024 * 1024 * 1024;
+            uint64_t availPhys = 2ULL * 1024 * 1024 * 1024;
+            uint64_t totalVirt = 2ULL * 1024 * 1024 * 1024;
+            uint64_t availVirt = 1536ULL * 1024 * 1024;
+            uint64_t zero64 = 0ULL;
+            cpu->writeGuestMemory(lpBuf + 4,  &memLoad,   4);
+            cpu->writeGuestMemory(lpBuf + 8,  &totalPhys, 8);
+            cpu->writeGuestMemory(lpBuf + 16, &availPhys, 8);
+            cpu->writeGuestMemory(lpBuf + 24, &totalPhys, 8);
+            cpu->writeGuestMemory(lpBuf + 32, &availPhys, 8);
+            cpu->writeGuestMemory(lpBuf + 40, &totalVirt, 8);
+            cpu->writeGuestMemory(lpBuf + 48, &availVirt, 8);
+            cpu->writeGuestMemory(lpBuf + 56, &zero64,    8);
+        }
+        cpu->writeRegister(X86Reg::EAX, 1u);      // TRUE
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!GetVersionExA" || sym == "kernel32.dll!GetVersionExW") {
+        uint32_t lpVer = 0;
+        cpu->readGuestMemory(esp + 4, &lpVer, 4);
+        if (lpVer != 0) {
+            uint32_t ver[4] = { 6u, 1u, 7601u, 2u }; // Windows 7 SP1 NT
+            uint16_t emptyCsd = 0;
+            cpu->writeGuestMemory(lpVer + 4,  ver,       sizeof(ver));
+            cpu->writeGuestMemory(lpVer + 20, &emptyCsd, 2);
+        }
+        cpu->writeRegister(X86Reg::EAX, 1u);      // TRUE
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!GetVersion") {
+        cpu->writeRegister(X86Reg::EAX, 0x1DB10106u); // Win 6.1 build 7601
+        cpu->writeRegister(X86Reg::ESP, esp + 4);     // stdcall: 0 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!GetCurrentProcess") {
+        cpu->writeRegister(X86Reg::EAX, 0xFFFFFFFFu);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall: 0 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!GetCurrentThread") {
+        cpu->writeRegister(X86Reg::EAX, 0xFFFFFFFEu);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall: 0 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!GetProcessHeap") {
+        cpu->writeRegister(X86Reg::EAX, 0x20000000u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall: 0 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!HeapAlloc") {
+        uint32_t dwFlags = 0, dwBytes = 0;
+        cpu->readGuestMemory(esp + 8,  &dwFlags, 4);
+        cpu->readGuestMemory(esp + 12, &dwBytes, 4);
+        uint32_t ptr = allocGuest(dwBytes);
+        if (ptr != 0 && (dwFlags & 0x8u) && dwBytes > 0) {
+            std::vector<uint8_t> zeros(dwBytes, 0);
+            cpu->writeGuestMemory(ptr, zeros.data(), dwBytes);
+        }
+        cpu->writeRegister(X86Reg::EAX, ptr);
+        cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: 3 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!HeapReAlloc") {
+        uint32_t dwFlags = 0, oldPtr = 0, newSz = 0;
+        cpu->readGuestMemory(esp + 8,  &dwFlags, 4);
+        cpu->readGuestMemory(esp + 12, &oldPtr,  4);
+        cpu->readGuestMemory(esp + 16, &newSz,   4);
+        uint32_t newPtr = allocGuest(newSz);
+        if (newPtr != 0) {
+            if ((dwFlags & 0x8u) && newSz > 0) {
+                std::vector<uint8_t> zeros(newSz, 0);
+                cpu->writeGuestMemory(newPtr, zeros.data(), newSz);
+            }
+            if (oldPtr != 0) {
+                auto it = m_allocSizes.find(oldPtr);
+                uint32_t copySz = (it != m_allocSizes.end()) ? it->second : 0u;
+                if (copySz > newSz) copySz = newSz;
+                if (copySz > 0) {
+                    std::vector<uint8_t> tmp(copySz);
+                    cpu->readGuestMemory(oldPtr, tmp.data(), copySz);
+                    cpu->writeGuestMemory(newPtr, tmp.data(), copySz);
+                }
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, newPtr);
+        cpu->writeRegister(X86Reg::ESP, esp + 20); // stdcall: 4 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!HeapFree") {
+        cpu->writeRegister(X86Reg::EAX, 1u);       // TRUE
+        cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: 3 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!HeapSize") {
+        uint32_t lpMem = 0;
+        cpu->readGuestMemory(esp + 12, &lpMem, 4);
+        uint32_t sz = 0;
+        auto it = m_allocSizes.find(lpMem);
+        if (it != m_allocSizes.end()) sz = it->second;
+        cpu->writeRegister(X86Reg::EAX, sz);
+        cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall: 3 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }
