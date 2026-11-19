@@ -3154,6 +3154,63 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "kernel32.dll!CreateMutexA" || sym == "kernel32.dll!CreateMutexW" ||
+        sym == "kernel32.dll!OpenMutexA" || sym == "kernel32.dll!OpenMutexW" ||
+        sym == "kernel32.dll!OpenEventA" || sym == "kernel32.dll!OpenEventW") {
+        static uint32_t s_syncHandle = 0x55000100u;
+        cpu->writeRegister(X86Reg::EAX, s_syncHandle++);
+        cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall (3 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!CreateEventA" || sym == "kernel32.dll!CreateEventW" ||
+        sym == "kernel32.dll!CreateSemaphoreA" || sym == "kernel32.dll!CreateSemaphoreW") {
+        static uint32_t s_syncHandle4 = 0x56000100u;
+        cpu->writeRegister(X86Reg::EAX, s_syncHandle4++);
+        cpu->writeRegister(X86Reg::ESP, esp + 20); // stdcall (4 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!ReleaseMutex" || sym == "kernel32.dll!SetEvent" ||
+        sym == "kernel32.dll!ResetEvent" || sym == "kernel32.dll!PulseEvent") {
+        cpu->writeRegister(X86Reg::EAX, 1u); // TRUE
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!ReleaseSemaphore") {
+        uint32_t prevPtr = 0;
+        cpu->readGuestMemory(esp + 12, &prevPtr, 4);
+        if (prevPtr != 0) { uint32_t prev = 1u; cpu->writeGuestMemory(prevPtr, &prev, 4); }
+        cpu->writeRegister(X86Reg::EAX, 1u); // TRUE
+        cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall (3 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!WaitForSingleObject") {
+        cpu->writeRegister(X86Reg::EAX, 0u); // WAIT_OBJECT_0
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall (2 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!WaitForMultipleObjects") {
+        cpu->writeRegister(X86Reg::EAX, 0u); // WAIT_OBJECT_0
+        cpu->writeRegister(X86Reg::ESP, esp + 20); // stdcall (4 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
     if (sym == "msvcr100.dll!___lc_codepage_func") {
         cpu->writeRegister(X86Reg::EAX, 0u); // C locale
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
