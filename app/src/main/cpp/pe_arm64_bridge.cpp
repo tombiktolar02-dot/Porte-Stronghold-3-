@@ -449,7 +449,8 @@ Java_com_bolt_stronghold3wrapper_MainActivity_inspectEngineBinaries(
         {"SupahFly.dll",               0x13000000},
         {"VisionEnginePlugin.vPlugin", 0x14000000},
         {"Havok.vPlugin",              0x15000000},
-        {"PathEngine.dll",             0x16000000}
+        {"PathEngine.dll",             0x16000000},
+        {"msvcp100.dll",               0x17000000}
     };
 
     for (const auto& s : specs) {
