@@ -3051,6 +3051,109 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "kernel32.dll!HeapCreate") {
+        cpu->writeRegister(X86Reg::EAX, 0x20000000u);
+        cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall (3 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!HeapDestroy") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!HeapSetInformation") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 20); // stdcall (4 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!HeapValidate") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall (3 args)
+        outNextEip = returnAddr;
+        return true;
+    }
+
+    if (sym == "kernel32.dll!HeapCompact") {
+        cpu->writeRegister(X86Reg::EAX, 0x100000u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall (2 args)
+        outNextEip = returnAddr;
+        return true;
+    }
+
+    if (sym == "kernel32.dll!HeapAlloc") {
+        uint32_t flags = 0, bytes = 0;
+        cpu->readGuestMemory(esp + 8, &flags, 4);
+        cpu->readGuestMemory(esp + 12, &bytes, 4);
+        uint32_t ptr = allocGuest(bytes);
+        if (ptr != 0 && (flags & 0x8u) && bytes > 0) {
+            std::vector<uint8_t> zeros(bytes, 0);
+            cpu->writeGuestMemory(ptr, zeros.data(), bytes);
+        }
+        cpu->writeRegister(X86Reg::EAX, ptr);
+        cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall (3 args)
+        outNextEip = returnAddr;
+        return true;
+    }
+
+    if (sym == "kernel32.dll!HeapFree") {
+        uint32_t ptr = 0;
+        cpu->readGuestMemory(esp + 12, &ptr, 4);
+        freeGuest(ptr);
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall (3 args)
+        outNextEip = returnAddr;
+        return true;
+    }
+
+    if (sym == "kernel32.dll!HeapReAlloc") {
+        uint32_t flags = 0, oldPtr = 0, bytes = 0;
+        cpu->readGuestMemory(esp + 8, &flags, 4);
+        cpu->readGuestMemory(esp + 12, &oldPtr, 4);
+        cpu->readGuestMemory(esp + 16, &bytes, 4);
+        uint32_t newPtr = allocGuest(bytes);
+        if (newPtr != 0) {
+            if ((flags & 0x8u) && bytes > 0) {
+                std::vector<uint8_t> zeros(bytes, 0);
+                cpu->writeGuestMemory(newPtr, zeros.data(), bytes);
+            }
+            if (oldPtr != 0) {
+                auto it = m_allocSizes.find(oldPtr);
+                if (it != m_allocSizes.end() && it->second > 0 && bytes > 0) {
+                    uint32_t copySz = std::min<uint32_t>(it->second, bytes);
+                    std::vector<uint8_t> tmp(copySz);
+                    cpu->readGuestMemory(oldPtr, tmp.data(), copySz);
+                    cpu->writeGuestMemory(newPtr, tmp.data(), copySz);
+                }
+                freeGuest(oldPtr);
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, newPtr);
+        cpu->writeRegister(X86Reg::ESP, esp + 20); // stdcall (4 args)
+        outNextEip = returnAddr;
+        return true;
+    }
+
+    if (sym == "kernel32.dll!HeapSize") {
+        uint32_t ptr = 0;
+        cpu->readGuestMemory(esp + 12, &ptr, 4);
+        uint32_t sz = 0;
+        auto it = m_allocSizes.find(ptr);
+        if (it != m_allocSizes.end()) sz = it->second;
+        cpu->writeRegister(X86Reg::EAX, sz);
+        cpu->writeRegister(X86Reg::ESP, esp + 16); // stdcall (3 args)
+        outNextEip = returnAddr;
+        return true;
+    }
+
     if (sym == "msvcr100.dll!___lc_codepage_func") {
         cpu->writeRegister(X86Reg::EAX, 0u); // C locale
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
