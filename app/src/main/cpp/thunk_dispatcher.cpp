@@ -325,7 +325,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
-    if (sym == "msvcr100.dll!malloc" ||
+    if (sym == "msvcr100.dll!malloc" || sym == "msvcr100.dll!_malloc_crt" ||
         sym == "msvcr100.dll!??2@YAPAXI@Z" ||
         sym == "msvcr100.dll!??_U@YAPAXI@Z") {
         uint32_t sz = 0;
@@ -355,7 +355,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
-    if (sym == "msvcr100.dll!realloc") {
+    if (sym == "msvcr100.dll!realloc" || sym == "msvcr100.dll!_realloc_crt") {
         uint32_t oldPtr = 0, newSz = 0;
         cpu->readGuestMemory(esp + 4, &oldPtr, 4);
         cpu->readGuestMemory(esp + 8, &newSz,  4);
