@@ -27,6 +27,19 @@ private:
     uint32_t    m_lastTrappedAddr = 0;
     uint32_t    m_lastReturnAddr  = 0;
     std::string m_lastTrappedSym;
+    uint32_t    m_heapCursor = 0x20000000u;
+    uint32_t    m_heapEnd    = 0x22000000u;
+    std::unordered_map<uint32_t, uint32_t> m_allocSizes;
+
+    uint32_t allocGuest(uint32_t size) {
+        if (size == 0) size = 16;
+        uint32_t aligned = (size + 15u) & ~15u;
+        if (m_heapCursor + aligned > m_heapEnd) return 0u;
+        uint32_t ptr = m_heapCursor;
+        m_heapCursor += aligned;
+        m_allocSizes[ptr] = size;
+        return ptr;
+    }
 };
 
 #endif // SH3_THUNK_DISPATCHER_H

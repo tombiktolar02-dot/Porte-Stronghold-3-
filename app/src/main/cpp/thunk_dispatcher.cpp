@@ -268,5 +268,66 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "msvcr100.dll!malloc" ||
+        sym == "msvcr100.dll!??2@YAPAXI@Z" ||
+        sym == "msvcr100.dll!??_U@YAPAXI@Z") {
+        uint32_t sz = 0;
+        cpu->readGuestMemory(esp + 4, &sz, 4);
+        uint32_t ptr = allocGuest(sz);
+        cpu->writeRegister(X86Reg::EAX, ptr);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!calloc") {
+        uint32_t num = 0, sz = 0;
+        cpu->readGuestMemory(esp + 4, &num, 4);
+        cpu->readGuestMemory(esp + 8, &sz,  4);
+        uint32_t total = num * sz;
+        uint32_t ptr = allocGuest(total);
+        if (ptr != 0 && total > 0) {
+            std::vector<uint8_t> zeros(total, 0);
+            cpu->writeGuestMemory(ptr, zeros.data(), total);
+        }
+        cpu->writeRegister(X86Reg::EAX, ptr);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!realloc") {
+        uint32_t oldPtr = 0, newSz = 0;
+        cpu->readGuestMemory(esp + 4, &oldPtr, 4);
+        cpu->readGuestMemory(esp + 8, &newSz,  4);
+        uint32_t newPtr = allocGuest(newSz);
+        if (oldPtr != 0 && newPtr != 0) {
+            auto it = m_allocSizes.find(oldPtr);
+            uint32_t copySz = (it != m_allocSizes.end()) ? it->second : 0u;
+            if (copySz > newSz) copySz = newSz;
+            if (copySz > 0) {
+                std::vector<uint8_t> tmp(copySz);
+                cpu->readGuestMemory(oldPtr, tmp.data(), copySz);
+                cpu->writeGuestMemory(newPtr, tmp.data(), copySz);
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, newPtr);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!free" ||
+        sym == "msvcr100.dll!??3@YAXPAX@Z" ||
+        sym == "msvcr100.dll!??_V@YAXPAX@Z") {
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }

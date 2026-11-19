@@ -34,6 +34,10 @@ public:
             munmap(m_thunkDataPage, 65536);
             m_thunkDataPage = nullptr;
         }
+        if (m_guestHeapPage) {
+            munmap(m_guestHeapPage, 32 * 1024 * 1024);
+            m_guestHeapPage = nullptr;
+        }
     }
 
     const char* backendName() const override {
@@ -82,6 +86,19 @@ public:
         err = uc_mem_map_ptr(m_uc, 0x70000000u, 65536, UC_PROT_READ | UC_PROT_WRITE, m_thunkDataPage);
         if (err != UC_ERR_OK) {
             LOGE("Thunk RW data map failed: %s", uc_strerror(err));
+            return false;
+        }
+        if (!m_guestHeapPage) {
+            m_guestHeapPage = (uint8_t*)mmap(nullptr, 32 * 1024 * 1024, PROT_READ | PROT_WRITE,
+                                             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            if (m_guestHeapPage == MAP_FAILED) {
+                m_guestHeapPage = nullptr;
+                return false;
+            }
+        }
+        err = uc_mem_map_ptr(m_uc, 0x20000000u, 32 * 1024 * 1024, UC_PROT_READ | UC_PROT_WRITE, m_guestHeapPage);
+        if (err != UC_ERR_OK) {
+            LOGE("Guest Heap map failed: %s", uc_strerror(err));
             return false;
         }
 
@@ -249,6 +266,7 @@ private:
     uc_hook     m_unmappedHook = 0;
     uc_hook     m_fetchProtHook = 0;
     uint8_t*    m_thunkDataPage = nullptr;
+    uint8_t*    m_guestHeapPage = nullptr;
     uint8_t*    m_gdtHostPage = nullptr;
     uint32_t    m_gdtGuestAddr = 0x7FFDC000u;
     uint32_t    m_fsBase = 0x7FFDF000u;
