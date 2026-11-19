@@ -2179,15 +2179,9 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         uint32_t writtenCnt = 0;
         if (f != nullptr && bufPtr != 0 && sz > 0 && cnt > 0) {
             uint32_t total = sz * cnt;
-            if (total <= 4096) {
-                uint8_t sbuf[4096];
-                readCnt = static_cast<uint32_t>(fread(sbuf, sz, cnt, f));
-                if (readCnt > 0) cpu->writeGuestMemory(bufPtr, sbuf, readCnt * sz);
-            } else {
-                std::vector<uint8_t> tmp(total);
-                readCnt = static_cast<uint32_t>(fread(tmp.data(), sz, cnt, f));
-                if (readCnt > 0) cpu->writeGuestMemory(bufPtr, tmp.data(), readCnt * sz);
-            }
+            std::vector<uint8_t> tmp(total);
+            cpu->readGuestMemory(bufPtr, tmp.data(), total);
+            writtenCnt = static_cast<uint32_t>(fwrite(tmp.data(), sz, cnt, f));
         }
         cpu->writeRegister(X86Reg::EAX, writtenCnt);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
