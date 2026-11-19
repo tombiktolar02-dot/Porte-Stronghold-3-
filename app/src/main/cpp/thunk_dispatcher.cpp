@@ -2411,7 +2411,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
     if (sym == "steam_api.dll!SteamAPI_Init" ||
         sym == "steam_api.dll!SteamAPI_InitSafe" ||
         sym == "steam_api.dll!SteamAPI_IsSteamRunning") {
-        cpu->writeRegister(X86Reg::EAX, 1u); // true
+        cpu->writeRegister(X86Reg::EAX, 0u); // false: skip Steam interfaces
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
         m_handledLog.push_back(sym);
