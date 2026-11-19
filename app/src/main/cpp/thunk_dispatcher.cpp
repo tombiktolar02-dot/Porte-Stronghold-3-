@@ -373,7 +373,24 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         } else {
             procStr = "#" + std::to_string(namePtr);
         }
-        cpu->writeRegister(X86Reg::EAX, 0u);       // NULL fallback for optional probes
+        uint32_t resolvedAddr = 0u;
+        if (namePtr > 0xFFFFu) {
+            std::string rawName = procStr.substr(1, procStr.size() - 2);
+            std::string suffix = "!" + rawName;
+            for (const auto& kv : m_reverseMap) {
+                if (kv.second.size() >= suffix.size() &&
+                    kv.second.compare(kv.second.size() - suffix.size(), suffix.size(), suffix) == 0) {
+                    resolvedAddr = kv.first;
+                    break;
+                }
+            }
+            if (resolvedAddr == 0u && m_dynThunkCursor < 0x7000E000u) {
+                resolvedAddr = m_dynThunkCursor;
+                m_dynThunkCursor += 0x10u;
+                m_reverseMap[resolvedAddr] = "dynamic!" + rawName;
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, resolvedAddr);
         cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: retAddr + 2 args
         outNextEip = returnAddr;
         m_handledLog.push_back(sym + "(" + procStr + ")");
@@ -393,6 +410,14 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->readGuestMemory(esp + 4, &errCode, 4);
         m_lastError = errCode;
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!EnumDisplayDevicesA" || sym == "dynamic!EnumDisplayDevicesA") {
+        cpu->writeRegister(X86Reg::EAX, 0u);       // FALSE: no more display devices
+        cpu->writeRegister(X86Reg::ESP, esp + 20); // stdcall: retAddr + 4 args
         outNextEip = returnAddr;
         m_handledLog.push_back(sym);
         return true;
