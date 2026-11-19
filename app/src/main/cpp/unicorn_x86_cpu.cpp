@@ -258,8 +258,10 @@ private:
         uc_reg_read(uc, UC_X86_REG_ECX, &r_ecx); uc_reg_read(uc, UC_X86_REG_EDX, &r_edx);
         uc_reg_read(uc, UC_X86_REG_ESI, &r_esi); uc_reg_read(uc, UC_X86_REG_EDI, &r_edi);
         uc_reg_read(uc, UC_X86_REG_EBP, &r_ebp); uc_reg_read(uc, UC_X86_REG_ESP, &r_esp);
+        uint32_t r_eip=0; uc_reg_read(uc, UC_X86_REG_EIP, &r_eip);
+        uint8_t op[8]={0}; uc_mem_read(uc, r_eip, op, 8);
         char fbuf[256];
-        snprintf(fbuf, sizeof(fbuf), "UNMAPPED_MEM(type=%d, addr=0x%08X, sz=%d) EAX=%08X EBX=%08X ECX=%08X EDX=%08X ESI=%08X EDI=%08X EBP=%08X ESP=%08X", (int)type, addr32, size, r_eax, r_ebx, r_ecx, r_edx, r_esi, r_edi, r_ebp, r_esp);
+        snprintf(fbuf, sizeof(fbuf), "UNMAPPED_MEM(addr=0x%08X) EIP=%08X OP=%02X%02X%02X%02X%02X%02X%02X%02X EAX=%08X ECX=%08X EDX=%08X ESI=%08X EDI=%08X", addr32, r_eip, op[0], op[1], op[2], op[3], op[4], op[5], op[6], op[7], r_eax, r_ecx, r_edx, r_esi, r_edi);
         self->m_faultReason = fbuf;
         LOGE("%s", fbuf);
         uc_emu_stop(uc);

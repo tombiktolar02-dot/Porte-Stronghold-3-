@@ -2449,7 +2449,8 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::EDX, static_cast<uint32_t>(rem));
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym);
+        char lbuf[96]; snprintf(lbuf, sizeof(lbuf), "%s(n=%d,d=%d)", sym.c_str(), numer, denom);
+        m_handledLog.push_back(lbuf);
         return true;
     }
 
