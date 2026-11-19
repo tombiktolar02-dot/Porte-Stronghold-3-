@@ -282,7 +282,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
-    if (sym == "msvcr100.dll!calloc") {
+    if (sym == "msvcr100.dll!calloc" || sym == "msvcr100.dll!_calloc_crt") {
         uint32_t num = 0, sz = 0;
         cpu->readGuestMemory(esp + 4, &num, 4);
         cpu->readGuestMemory(esp + 8, &sz,  4);
