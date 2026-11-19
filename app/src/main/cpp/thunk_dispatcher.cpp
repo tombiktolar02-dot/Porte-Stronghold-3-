@@ -251,5 +251,22 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "msvcr100.dll!_lock" || sym == "msvcr100.dll!_unlock") {
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl: caller cleans args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!__dllonexit" || sym == "msvcr100.dll!_onexit") {
+        uint32_t funcPtr = 0;
+        cpu->readGuestMemory(esp + 4, &funcPtr, 4);
+        cpu->writeRegister(X86Reg::EAX, funcPtr); // return registered func pointer
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl: caller cleans args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }
