@@ -1,3 +1,4 @@
+#include <cstdio>
 #include "thunk_dispatcher.h"
 #include <android/log.h>
 #include <time.h>
@@ -1141,6 +1142,159 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         }
         cpu->writeRegister(X86Reg::EAX, written);
         cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    auto formatGuestPrintf = [&](uint32_t fmtAddr, uint32_t vaAddr) -> std::string {
+        std::string fmt = readCStr(fmtAddr, 4096);
+        std::string out;
+        uint32_t curVa = vaAddr;
+        for (size_t i = 0; i < fmt.size(); ++i) {
+            if (fmt[i] != '%') {
+                out.push_back(fmt[i]);
+                continue;
+            }
+            if (i + 1 < fmt.size() && fmt[i + 1] == '%') {
+                out.push_back('%');
+                ++i;
+                continue;
+            }
+            std::string spec = "%";
+            ++i;
+            while (i < fmt.size() && (fmt[i] == '-' || fmt[i] == '+' || fmt[i] == ' ' || fmt[i] == '#' || fmt[i] == '0')) {
+                spec.push_back(fmt[i++]);
+            }
+            if (i < fmt.size() && fmt[i] == '*') {
+                int32_t w = 0;
+                cpu->readGuestMemory(curVa, &w, 4); curVa += 4;
+                spec += std::to_string(w);
+                ++i;
+            } else {
+                while (i < fmt.size() && fmt[i] >= '0' && fmt[i] <= '9') spec.push_back(fmt[i++]);
+            }
+            if (i < fmt.size() && fmt[i] == '.') {
+                spec.push_back(fmt[i++]);
+                if (i < fmt.size() && fmt[i] == '*') {
+                    int32_t pr = 0;
+                    cpu->readGuestMemory(curVa, &pr, 4); curVa += 4;
+                    spec += std::to_string(pr);
+                    ++i;
+                } else {
+                    while (i < fmt.size() && fmt[i] >= '0' && fmt[i] <= '9') spec.push_back(fmt[i++]);
+                }
+            }
+            bool is64 = false;
+            if (i + 2 < fmt.size() && fmt[i] == 'I' && fmt[i+1] == '6' && fmt[i+2] == '4') {
+                is64 = true; i += 3;
+            } else if (i + 1 < fmt.size() && fmt[i] == 'l' && fmt[i+1] == 'l') {
+                is64 = true; i += 2;
+            } else if (i < fmt.size() && (fmt[i] == 'l' || fmt[i] == 'h' || fmt[i] == 'z')) {
+                ++i;
+            }
+            if (i >= fmt.size()) break;
+            char t = fmt[i];
+            char tmp[128] = {};
+            if (t == 's') {
+                uint32_t strPtr = 0;
+                cpu->readGuestMemory(curVa, &strPtr, 4); curVa += 4;
+                out += (strPtr != 0) ? readCStr(strPtr, 4096) : "(null)";
+            } else if (t == 'c') {
+                uint32_t ch = 0;
+                cpu->readGuestMemory(curVa, &ch, 4); curVa += 4;
+                out.push_back(static_cast<char>(ch & 0xFFu));
+            } else if (t == 'd' || t == 'i') {
+                if (is64) {
+                    int64_t v = 0;
+                    cpu->readGuestMemory(curVa, &v, 8); curVa += 8;
+                    spec += "lld";
+                    std::snprintf(tmp, sizeof(tmp), spec.c_str(), (long long)v);
+                } else {
+                    int32_t v = 0;
+                    cpu->readGuestMemory(curVa, &v, 4); curVa += 4;
+                    spec.push_back(t);
+                    std::snprintf(tmp, sizeof(tmp), spec.c_str(), v);
+                }
+                out += tmp;
+            } else if (t == 'u' || t == 'x' || t == 'X' || t == 'o' || t == 'p') {
+                if (is64 && t != 'p') {
+                    uint64_t v = 0;
+                    cpu->readGuestMemory(curVa, &v, 8); curVa += 8;
+                    spec += "ll"; spec.push_back(t);
+                    std::snprintf(tmp, sizeof(tmp), spec.c_str(), (unsigned long long)v);
+                } else {
+                    uint32_t v = 0;
+                    cpu->readGuestMemory(curVa, &v, 4); curVa += 4;
+                    if (t == 'p') {
+                        std::snprintf(tmp, sizeof(tmp), "%08X", v);
+                    } else {
+                        spec.push_back(t);
+                        std::snprintf(tmp, sizeof(tmp), spec.c_str(), v);
+                    }
+                }
+                out += tmp;
+            } else if (t == 'f' || t == 'F' || t == 'g' || t == 'G' || t == 'e' || t == 'E') {
+                double v = 0.0;
+                cpu->readGuestMemory(curVa, &v, 8); curVa += 8;
+                spec.push_back(t);
+                std::snprintf(tmp, sizeof(tmp), spec.c_str(), v);
+                out += tmp;
+            } else {
+                out.push_back(t);
+            }
+        }
+        return out;
+    };
+
+    if (sym == "msvcr100.dll!_vsnprintf" || sym == "msvcr100.dll!vsnprintf" ||
+        sym == "msvcr100.dll!vsprintf"   || sym == "msvcr100.dll!_vsnprintf_s" ||
+        sym == "msvcr100.dll!_snprintf"  || sym == "msvcr100.dll!snprintf" ||
+        sym == "msvcr100.dll!sprintf"    || sym == "msvcr100.dll!sprintf_s" ||
+        sym == "msvcr100.dll!_vscprintf") {
+        uint32_t bufPtr = 0, maxCount = 0xFFFFFFFFu, fmtAddr = 0, vaAddr = 0;
+        if (sym == "msvcr100.dll!_vscprintf") {
+            cpu->readGuestMemory(esp + 4, &fmtAddr, 4);
+            cpu->readGuestMemory(esp + 8, &vaAddr,  4);
+        } else if (sym == "msvcr100.dll!_vsnprintf" || sym == "msvcr100.dll!vsnprintf") {
+            cpu->readGuestMemory(esp + 4,  &bufPtr,   4);
+            cpu->readGuestMemory(esp + 8,  &maxCount, 4);
+            cpu->readGuestMemory(esp + 12, &fmtAddr,  4);
+            cpu->readGuestMemory(esp + 16, &vaAddr,   4);
+        } else if (sym == "msvcr100.dll!_vsnprintf_s") {
+            uint32_t bufSz = 0, cnt = 0;
+            cpu->readGuestMemory(esp + 4,  &bufPtr,  4);
+            cpu->readGuestMemory(esp + 8,  &bufSz,   4);
+            cpu->readGuestMemory(esp + 12, &cnt,     4);
+            cpu->readGuestMemory(esp + 16, &fmtAddr, 4);
+            cpu->readGuestMemory(esp + 20, &vaAddr,  4);
+            maxCount = (cnt != 0xFFFFFFFFu && cnt < bufSz) ? cnt : bufSz;
+        } else if (sym == "msvcr100.dll!vsprintf") {
+            cpu->readGuestMemory(esp + 4,  &bufPtr,  4);
+            cpu->readGuestMemory(esp + 8,  &fmtAddr, 4);
+            cpu->readGuestMemory(esp + 12, &vaAddr,  4);
+        } else if (sym == "msvcr100.dll!_snprintf" || sym == "msvcr100.dll!snprintf" || sym == "msvcr100.dll!sprintf_s") {
+            cpu->readGuestMemory(esp + 4,  &bufPtr,   4);
+            cpu->readGuestMemory(esp + 8,  &maxCount, 4);
+            cpu->readGuestMemory(esp + 12, &fmtAddr,  4);
+            vaAddr = esp + 16;
+        } else { // sprintf
+            cpu->readGuestMemory(esp + 4, &bufPtr,  4);
+            cpu->readGuestMemory(esp + 8, &fmtAddr, 4);
+            vaAddr = esp + 12;
+        }
+
+        std::string formatted = formatGuestPrintf(fmtAddr, vaAddr);
+        uint32_t written = static_cast<uint32_t>(formatted.size());
+        if (bufPtr != 0 && maxCount > 0) {
+            uint32_t limit = (maxCount == 0xFFFFFFFFu) ? written : ((written < maxCount - 1) ? written : (maxCount - 1));
+            if (limit > 0) cpu->writeGuestMemory(bufPtr, formatted.c_str(), limit);
+            uint8_t nul = 0;
+            cpu->writeGuestMemory(bufPtr + limit, &nul, 1);
+            written = limit;
+        }
+        cpu->writeRegister(X86Reg::EAX, written);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
         m_handledLog.push_back(sym);
         return true;
