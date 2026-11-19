@@ -1072,5 +1072,79 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "msvcr100.dll!_chdir" || sym == "msvcr100.dll!_wchdir") {
+        cpu->writeRegister(X86Reg::EAX, 0u); // 0 = success
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_getcwd") {
+        uint32_t bufPtr = 0, maxLen = 0;
+        cpu->readGuestMemory(esp + 4, &bufPtr, 4);
+        cpu->readGuestMemory(esp + 8, &maxLen, 4);
+        std::string dir = "C:\\Stronghold3";
+        if (bufPtr == 0) bufPtr = allocGuest(maxLen > 0 ? maxLen : 260u);
+        if (bufPtr != 0) {
+            uint32_t limit = (maxLen > 1) ? (maxLen - 1) : static_cast<uint32_t>(dir.size());
+            uint32_t written = (dir.size() < limit) ? static_cast<uint32_t>(dir.size()) : limit;
+            cpu->writeGuestMemory(bufPtr, dir.c_str(), written);
+            uint8_t nul = 0;
+            cpu->writeGuestMemory(bufPtr + written, &nul, 1);
+        }
+        cpu->writeRegister(X86Reg::EAX, bufPtr);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!SetCurrentDirectoryA" || sym == "kernel32.dll!SetCurrentDirectoryW") {
+        cpu->writeRegister(X86Reg::EAX, 1u); // TRUE
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!GetCurrentDirectoryA") {
+        uint32_t nBufLen = 0, lpBuf = 0;
+        cpu->readGuestMemory(esp + 4, &nBufLen, 4);
+        cpu->readGuestMemory(esp + 8, &lpBuf,   4);
+        std::string dir = "C:\\Stronghold3";
+        uint32_t written = 0;
+        if (lpBuf != 0 && nBufLen > 1) {
+            written = (dir.size() < nBufLen - 1) ? static_cast<uint32_t>(dir.size()) : (nBufLen - 1);
+            cpu->writeGuestMemory(lpBuf, dir.c_str(), written);
+            uint8_t nul = 0;
+            cpu->writeGuestMemory(lpBuf + written, &nul, 1);
+        }
+        cpu->writeRegister(X86Reg::EAX, written);
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!GetCurrentDirectoryW") {
+        uint32_t nBufLen = 0, lpBuf = 0;
+        cpu->readGuestMemory(esp + 4, &nBufLen, 4);
+        cpu->readGuestMemory(esp + 8, &lpBuf,   4);
+        std::string dir = "C:\\Stronghold3";
+        uint32_t written = 0;
+        if (lpBuf != 0 && nBufLen > 1) {
+            written = (dir.size() < nBufLen - 1) ? static_cast<uint32_t>(dir.size()) : (nBufLen - 1);
+            std::vector<uint16_t> wbuf(written + 1, 0);
+            for (uint32_t i = 0; i < written; ++i) wbuf[i] = static_cast<uint16_t>(dir[i]);
+            cpu->writeGuestMemory(lpBuf, wbuf.data(), (written + 1) * 2);
+        }
+        cpu->writeRegister(X86Reg::EAX, written);
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall: 2 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }
