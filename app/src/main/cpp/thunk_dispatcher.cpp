@@ -549,5 +549,81 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "msvcr100.dll!memcpy" || sym == "msvcr100.dll!memmove") {
+        uint32_t dst = 0, src = 0, cnt = 0;
+        cpu->readGuestMemory(esp + 4,  &dst, 4);
+        cpu->readGuestMemory(esp + 8,  &src, 4);
+        cpu->readGuestMemory(esp + 12, &cnt, 4);
+        if (dst != 0 && src != 0 && cnt > 0) {
+            std::vector<uint8_t> buf(cnt);
+            cpu->readGuestMemory(src, buf.data(), cnt);
+            cpu->writeGuestMemory(dst, buf.data(), cnt);
+        }
+        cpu->writeRegister(X86Reg::EAX, dst);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!memcpy_s" || sym == "msvcr100.dll!memmove_s") {
+        uint32_t dst = 0, dstSz = 0, src = 0, cnt = 0;
+        cpu->readGuestMemory(esp + 4,  &dst,   4);
+        cpu->readGuestMemory(esp + 8,  &dstSz, 4);
+        cpu->readGuestMemory(esp + 12, &src,   4);
+        cpu->readGuestMemory(esp + 16, &cnt,   4);
+        uint32_t copyLen = (cnt <= dstSz) ? cnt : dstSz;
+        if (dst != 0 && src != 0 && copyLen > 0) {
+            std::vector<uint8_t> buf(copyLen);
+            cpu->readGuestMemory(src, buf.data(), copyLen);
+            cpu->writeGuestMemory(dst, buf.data(), copyLen);
+        }
+        cpu->writeRegister(X86Reg::EAX, 0u); // errno_t = 0 (success)
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!memset") {
+        uint32_t dst = 0, val = 0, cnt = 0;
+        cpu->readGuestMemory(esp + 4,  &dst, 4);
+        cpu->readGuestMemory(esp + 8,  &val, 4);
+        cpu->readGuestMemory(esp + 12, &cnt, 4);
+        if (dst != 0 && cnt > 0) {
+            std::vector<uint8_t> buf(cnt, static_cast<uint8_t>(val & 0xFFu));
+            cpu->writeGuestMemory(dst, buf.data(), cnt);
+        }
+        cpu->writeRegister(X86Reg::EAX, dst);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!memcmp") {
+        uint32_t a = 0, b = 0, cnt = 0;
+        cpu->readGuestMemory(esp + 4,  &a,   4);
+        cpu->readGuestMemory(esp + 8,  &b,   4);
+        cpu->readGuestMemory(esp + 12, &cnt, 4);
+        int32_t res = 0;
+        if (a != 0 && b != 0 && cnt > 0) {
+            std::vector<uint8_t> ba(cnt), bb(cnt);
+            cpu->readGuestMemory(a, ba.data(), cnt);
+            cpu->readGuestMemory(b, bb.data(), cnt);
+            for (uint32_t i = 0; i < cnt; ++i) {
+                if (ba[i] != bb[i]) {
+                    res = (ba[i] < bb[i]) ? -1 : 1;
+                    break;
+                }
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(res));
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym);
+        return true;
+    }
+
     return false; // Unimplemented Win32 API -> stop cleanly
 }
