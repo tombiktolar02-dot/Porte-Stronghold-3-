@@ -1,6 +1,7 @@
 #include <sys/stat.h>
 #include <cstdio>
 #include "thunk_dispatcher.h"
+#include <chrono>
 #include <ctime>
 #include <android/log.h>
 #include <time.h>
@@ -3206,6 +3207,55 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
     if (sym == "kernel32.dll!WaitForMultipleObjects") {
         cpu->writeRegister(X86Reg::EAX, 0u); // WAIT_OBJECT_0
         cpu->writeRegister(X86Reg::ESP, esp + 20); // stdcall (4 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "winmm.dll!timeGetTime") {
+        auto ms = static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+        cpu->writeRegister(X86Reg::EAX, ms);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall (0 args)
+        outNextEip = returnAddr;
+        return true;
+    }
+
+    if (sym == "winmm.dll!timeBeginPeriod" || sym == "winmm.dll!timeEndPeriod") {
+        cpu->writeRegister(X86Reg::EAX, 0u); // TIMERR_NOERROR
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "winmm.dll!timeGetDevCaps") {
+        uint32_t ptc = 0, cbtc = 0;
+        cpu->readGuestMemory(esp + 4, &ptc, 4);
+        cpu->readGuestMemory(esp + 8, &cbtc, 4);
+        if (ptc != 0 && cbtc >= 8) {
+            uint32_t caps[2] = { 1u, 1000000u };
+            cpu->writeGuestMemory(ptc, caps, sizeof(caps));
+        }
+        cpu->writeRegister(X86Reg::EAX, 0u); // TIMERR_NOERROR
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall (2 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "winmm.dll!timeGetSystemTime") {
+        uint32_t pmmt = 0, cbmmt = 0;
+        cpu->readGuestMemory(esp + 4, &pmmt, 4);
+        cpu->readGuestMemory(esp + 8, &cbmmt, 4);
+        if (pmmt != 0 && cbmmt >= 8) {
+            auto ms = static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count());
+            uint32_t mmtime[2] = { 1u, ms }; // TIME_MS = 1
+            cpu->writeGuestMemory(pmmt, mmtime, sizeof(mmtime));
+        }
+        cpu->writeRegister(X86Reg::EAX, 0u); // TIMERR_NOERROR
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall (2 args)
         outNextEip = returnAddr;
         logSym(sym);
         return true;
