@@ -81,9 +81,31 @@ private:
 
     std::string m_lastMsgBox;
     std::string m_d3dTrace;
+    bool m_postD3dActive = false;
     std::string m_lastCmp;
 
     void logSym(const std::string& s) {
+        if (m_postD3dActive && m_d3dTrace.size() < 320u) {
+            if (s.find("!malloc") == std::string::npos && s.find("!free") == std::string::npos &&
+                s.find("!realloc") == std::string::npos && s.find("!calloc") == std::string::npos &&
+                s.find("!??") == std::string::npos && s.find("CriticalSection") == std::string::npos &&
+                s.find("Interlocked") == std::string::npos && s.find("TlsGetValue") == std::string::npos &&
+                s.find("TlsSetValue") == std::string::npos && s.find("LastError") == std::string::npos &&
+                s.find("CurrentThreadId") == std::string::npos && s.find("!mem") == std::string::npos &&
+                s.find("!str") == std::string::npos && s.find("!wcs") == std::string::npos &&
+                s.find("!_lock") == std::string::npos && s.find("!_unlock") == std::string::npos &&
+                s.find("Pointer") == std::string::npos && s.find("Heap") == std::string::npos &&
+                s.find("QueryPerformance") == std::string::npos && s.find("GetTickCount") == std::string::npos &&
+                s.find("!fread") == std::string::npos && s.find("!fseek") == std::string::npos &&
+                s.find("!ftell") == std::string::npos && s.find("!feof") == std::string::npos &&
+                s.find("!ferror") == std::string::npos && s.find("printf") == std::string::npos &&
+                s.find("!qsort") == std::string::npos && s.find("!bsearch") == std::string::npos &&
+                s.find("!rand") == std::string::npos && s.find("IDirect3D9::") == std::string::npos) {
+                size_t bang = s.find(33);
+                std::string sh = (bang != std::string::npos) ? s.substr(bang + 1) : s;
+                m_d3dTrace += sh + " ";
+            }
+        }
         if (m_handledLog.size() >= 4096) return;
         if (s.find("!malloc") != std::string::npos || s.find("!calloc") != std::string::npos ||
             s.find("!realloc") != std::string::npos || s.find("!free") != std::string::npos ||

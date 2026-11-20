@@ -365,7 +365,7 @@ static std::string runStage5BootstrapProbe() {
     }
     out << "Reverse Thunk Map Indexed: " << dispatcher.count() << " entries\n";
 
-    cpu->setThunkRange(0x70000000u, g_nextThunkAddr + 16,
+    cpu->setThunkRange(0x70000000u, 0x7000FFF0u,
         [&dispatcher](uint32_t thunkAddr, uint32_t retAddr) {
             return dispatcher.onThunkTrap(thunkAddr, retAddr);
         });

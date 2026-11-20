@@ -985,6 +985,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         char lbuf[224];
         snprintf(lbuf, sizeof(lbuf), "%s(\"%s\")->0x%08X", sym.c_str(), modName.c_str(), hMod);
         m_handledLog.push_back(lbuf);
+        if (m_postD3dActive && m_d3dTrace.size() < 320u) m_d3dTrace += "LL(" + modName + ") ";
         return true;
     }
 
@@ -1013,6 +1014,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         char lbuf[224];
         snprintf(lbuf, sizeof(lbuf), "%s(\"%s\")->0x%08X", sym.c_str(), modName.c_str(), hMod);
         m_handledLog.push_back(lbuf);
+        if (m_postD3dActive && m_d3dTrace.size() < 320u) m_d3dTrace += "LL(" + modName + ") ";
         return true;
     }
 
@@ -1277,8 +1279,60 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
     }
 
     if (sym == "user32.dll!EnumDisplayDevicesA" || sym == "dynamic!EnumDisplayDevicesA") {
-        cpu->writeRegister(X86Reg::EAX, 0u);       // FALSE: no more display devices
-        cpu->writeRegister(X86Reg::ESP, esp + 20); // stdcall: retAddr + 4 args
+        uint32_t lpDev = 0u, iDevNum = 0u, lpDD = 0u;
+        cpu->readGuestMemory(esp + 4,  &lpDev,   4);
+        cpu->readGuestMemory(esp + 8,  &iDevNum, 4);
+        cpu->readGuestMemory(esp + 12, &lpDD,    4);
+        uint32_t retVal = 0u;
+        if (iDevNum == 0u && lpDD >= 0x10000u) {
+            uint32_t cb = 0u;
+            cpu->readGuestMemory(lpDD, &cb, 4);
+            if (cb < 168u || cb > 424u) cb = 424u;
+            std::vector<uint8_t> dd(424, 0u);
+            memcpy(dd.data(), &cb, 4);
+            bool isMon = (lpDev >= 0x10000u);
+            const char* devName = isMon ? "\\\\.\\DISPLAY1\\Monitor0" : "\\\\.\\DISPLAY1";
+            const char* devStr  = isMon ? "Generic PnP Monitor" : "Stronghold3 ARM64 Virtual GPU";
+            uint32_t flags      = isMon ? 0x00000003u : 0x00000005u;
+            const char* devId   = isMon ? "MONITOR\\DEFAULT" : "PCI\\VEN_10DE&DEV_1180";
+            strncpy(reinterpret_cast<char*>(dd.data() + 4),   devName, 31);
+            strncpy(reinterpret_cast<char*>(dd.data() + 36),  devStr,  127);
+            memcpy(dd.data() + 164, &flags, 4);
+            strncpy(reinterpret_cast<char*>(dd.data() + 168), devId,   127);
+            cpu->writeGuestMemory(lpDD, dd.data(), cb);
+            retVal = 1u;
+        }
+        cpu->writeRegister(X86Reg::EAX, retVal);
+        cpu->writeRegister(X86Reg::ESP, esp + 20u); // stdcall: retAddr + 4 args
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!EnumDisplayDevicesW" || sym == "dynamic!EnumDisplayDevicesW") {
+        uint32_t lpDev = 0u, iDevNum = 0u, lpDD = 0u;
+        cpu->readGuestMemory(esp + 4,  &lpDev,   4);
+        cpu->readGuestMemory(esp + 8,  &iDevNum, 4);
+        cpu->readGuestMemory(esp + 12, &lpDD,    4);
+        uint32_t retVal = 0u;
+        if (iDevNum == 0u && lpDD >= 0x10000u) {
+            uint32_t cb = 0u;
+            cpu->readGuestMemory(lpDD, &cb, 4);
+            if (cb < 328u || cb > 840u) cb = 840u;
+            std::vector<uint8_t> dd(840, 0u);
+            memcpy(dd.data(), &cb, 4);
+            bool isMon = (lpDev >= 0x10000u);
+            const char16_t* devName = isMon ? u"\\\\.\\DISPLAY1\\Monitor0" : u"\\\\.\\DISPLAY1";
+            const char16_t* devStr  = isMon ? u"Generic PnP Monitor" : u"Stronghold3 ARM64 Virtual GPU";
+            uint32_t flags          = isMon ? 0x00000003u : 0x00000005u;
+            for (size_t i = 0; devName[i] && i < 31; ++i) memcpy(dd.data() + 4 + i * 2, &devName[i], 2);
+            for (size_t i = 0; devStr[i] && i < 127; ++i) memcpy(dd.data() + 68 + i * 2, &devStr[i], 2);
+            memcpy(dd.data() + 324, &flags, 4);
+            cpu->writeGuestMemory(lpDD, dd.data(), cb);
+            retVal = 1u;
+        }
+        cpu->writeRegister(X86Reg::EAX, retVal);
+        cpu->writeRegister(X86Reg::ESP, esp + 20u); // stdcall: retAddr + 4 args
         outNextEip = returnAddr;
         logSym(sym);
         return true;
@@ -5242,6 +5296,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
 
     if (sym == "d3d9.dll!Direct3DCreate9" || sym == "dynamic!Direct3DCreate9") {
         if (m_d3dTrace.size() < 200u) m_d3dTrace += "Create9 ";
+        m_postD3dActive = true;
         static uint32_t s_d3d9Obj = 0u;
         uint32_t existingVt = 0u;
         if (s_d3d9Obj != 0u) cpu->readGuestMemory(s_d3d9Obj, &existingVt, 4);
