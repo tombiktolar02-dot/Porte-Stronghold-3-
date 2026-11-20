@@ -544,7 +544,6 @@ static std::string runStage5BootstrapProbe() {
     return out.str();
 }
 
-extern "C" JNIEXPORT jstring JNICALL
 extern "C" JNIEXPORT void JNICALL
 Java_com_bolt_stronghold3wrapper_MainActivity_setNativeSurface(
         JNIEnv* env, jobject /*thiz*/, jobject jSurface) {
@@ -553,6 +552,7 @@ Java_com_bolt_stronghold3wrapper_MainActivity_setNativeSurface(
     if (win) ANativeWindow_release(win);
 }
 
+extern "C" JNIEXPORT jstring JNICALL
 Java_com_bolt_stronghold3wrapper_MainActivity_inspectEngineBinaries(
         JNIEnv* env, jobject /*thiz*/, jstring jBinDir) {
     for (auto& m : g_modules) {
