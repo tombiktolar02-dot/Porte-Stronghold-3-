@@ -584,7 +584,8 @@ Java_com_bolt_stronghold3wrapper_MainActivity_inspectEngineBinaries(
         {"Havok.vPlugin",              0x15000000},
         {"PathEngine.dll",             0x16000000},
         {"msvcp100.dll",               0x17000000},
-        {"lua100.dll",                 0x18000000}
+        {"lua100.dll",                 0x18000000},
+        {"FMod.vPlugin",               0x19000000}
     };
 
     for (const auto& s : specs) {

@@ -5486,6 +5486,144 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         outNextEip = returnAddr; logSym(sym); return true;
     }
 
+    if (sym.rfind("fmodex.dll!", 0) == 0 || sym.rfind("fmod_event.dll!", 0) == 0 ||
+        sym.rfind("fmod_event_net.dll!", 0) == 0) {
+        alignas(4096) static uint8_t s_fmodPage[4096] = {};
+        static bool s_fmodMapped = false;
+        static uint32_t s_fmodNext = 0x6E000030u;
+        static std::unordered_map<uint32_t, uint32_t> s_fmodUD;
+        if (!s_fmodMapped) {
+            for (uint32_t i = 0; i < 64u; ++i) {
+                uint32_t trap = 0x6E00F000u + (i << 2);
+                memcpy(s_fmodPage + 0x800u + (i << 2), &trap, 4);
+            }
+            uint32_t vt = 0x6E000800u;
+            memcpy(s_fmodPage + 0x10u, &vt, 4);
+            memcpy(s_fmodPage + 0x20u, &vt, 4);
+            cpu->mapGuestMemory(0x6E000000u, 4096u, s_fmodPage);
+            s_fmodMapped = true;
+        }
+        auto allocFmod = [&]() -> uint32_t {
+            if (s_fmodNext >= 0x6E0007E0u) s_fmodNext = 0x6E000030u;
+            uint32_t h = s_fmodNext; s_fmodNext += 16u;
+            uint32_t vt = 0x6E000800u;
+            cpu->writeGuestMemory(h, &vt, 4);
+            return h;
+        };
+        auto wr32 = [&](uint32_t off, uint32_t val) {
+            uint32_t p = 0u; cpu->readGuestMemory(esp + off, &p, 4);
+            if (p >= 0x10000u) cpu->writeGuestMemory(p, &val, 4);
+        };
+        std::string fn = sym.substr(sym.find('!') + 1);
+        struct FmodSig { const char* n; uint32_t pop; int8_t outObj; };
+        static const FmodSig kSigs[] = {
+            {"?getCPUUsage@System@FMOD@@QAG?AW4FMOD_RESULT@@PAM0000@Z", 28, -1},
+            {"?setParameter@DSP@FMOD@@QAG?AW4FMOD_RESULT@@HM@Z", 16, -1},
+            {"?setActive@DSP@FMOD@@QAG?AW4FMOD_RESULT@@_N@Z", 12, -1},
+            {"?setBypass@DSP@FMOD@@QAG?AW4FMOD_RESULT@@_N@Z", 12, -1},
+            {"?setReverbAmbientProperties@System@FMOD@@QAG?AW4FMOD_RESULT@@PAUFMOD_REVERB_PROPERTIES@@@Z", 12, -1},
+            {"?setGeometrySettings@System@FMOD@@QAG?AW4FMOD_RESULT@@M@Z", 12, -1},
+            {"?release@DSP@FMOD@@QAG?AW4FMOD_RESULT@@XZ", 8, -1},
+            {"?release@ChannelGroup@FMOD@@QAG?AW4FMOD_RESULT@@XZ", 8, -1},
+            {"?createChannelGroup@System@FMOD@@QAG?AW4FMOD_RESULT@@PBDPAPAVChannelGroup@2@@Z", 16, 12},
+            {"?getMasterChannelGroup@System@FMOD@@QAG?AW4FMOD_RESULT@@PAPAVChannelGroup@2@@Z", 12, 8},
+            {"?setSpeakerMode@System@FMOD@@QAG?AW4FMOD_RESULT@@W4FMOD_SPEAKERMODE@@@Z", 12, -1},
+            {"?getDriverCaps@System@FMOD@@QAG?AW4FMOD_RESULT@@HPAIPAH1PAW4FMOD_SPEAKERMODE@@@Z", 28, -1},
+            {"?setFileSystem@System@FMOD@@QAG?AW4FMOD_RESULT@@P6G?AW43@PBDHPAIPAPAX2@ZP6G?AW43@PAX4@ZP6G?AW43@44I14@ZP6G?AW43@4I4@ZP6G?AW43@PAUFMOD_ASYNCREADINFO@@4@Z5H@Z", 36, -1},
+            {"?set3DSettings@System@FMOD@@QAG?AW4FMOD_RESULT@@MMM@Z", 20, -1},
+            {"?setOutput@System@FMOD@@QAG?AW4FMOD_RESULT@@W4FMOD_OUTPUTTYPE@@@Z", 12, -1},
+            {"?addDSP@ChannelGroup@FMOD@@QAG?AW4FMOD_RESULT@@PAVDSP@2@PAPAVDSPConnection@2@@Z", 16, 12},
+            {"?getOutputHandle@System@FMOD@@QAG?AW4FMOD_RESULT@@PAPAX@Z", 12, 8},
+            {"?getOutput@System@FMOD@@QAG?AW4FMOD_RESULT@@PAW4FMOD_OUTPUTTYPE@@@Z", 12, -1},
+            {"_FMOD_Debug_SetLevel@4", 8, -1},
+            {"_FMOD_Memory_GetStats@12", 16, -1},
+            {"?addGroup@ChannelGroup@FMOD@@QAG?AW4FMOD_RESULT@@PAV12@@Z", 12, -1},
+            {"?getParentGroup@ChannelGroup@FMOD@@QAG?AW4FMOD_RESULT@@PAPAV12@@Z", 12, 8},
+            {"?setScale@Geometry@FMOD@@QAG?AW4FMOD_RESULT@@PBUFMOD_VECTOR@@@Z", 12, -1},
+            {"?setPosition@Geometry@FMOD@@QAG?AW4FMOD_RESULT@@PBUFMOD_VECTOR@@@Z", 12, -1},
+            {"?setRotation@Geometry@FMOD@@QAG?AW4FMOD_RESULT@@PBUFMOD_VECTOR@@0@Z", 16, -1},
+            {"?addPolygon@Geometry@FMOD@@QAG?AW4FMOD_RESULT@@MM_NHPBUFMOD_VECTOR@@PAH@Z", 32, -1},
+            {"?createGeometry@System@FMOD@@QAG?AW4FMOD_RESULT@@HHPAPAVGeometry@2@@Z", 20, 16},
+            {"?release@Geometry@FMOD@@QAG?AW4FMOD_RESULT@@XZ", 8, -1},
+            {"?getActive@Geometry@FMOD@@QAG?AW4FMOD_RESULT@@PA_N@Z", 12, -1},
+            {"?setActive@Geometry@FMOD@@QAG?AW4FMOD_RESULT@@_N@Z", 12, -1},
+            {"?getParentGroup@Event@FMOD@@QAG?AW4FMOD_RESULT@@PAPAVEventGroup@2@@Z", 12, 8},
+            {"?createReverb@EventSystem@FMOD@@QAG?AW4FMOD_RESULT@@PAPAVEventReverb@2@@Z", 12, 8},
+            {"?getReverbPreset@EventSystem@FMOD@@QAG?AW4FMOD_RESULT@@PBDPAUFMOD_REVERB_PROPERTIES@@PAH@Z", 20, -1},
+            {"?setCallback@Event@FMOD@@QAG?AW4FMOD_RESULT@@P6G?AW43@PAUFMOD_EVENT@@W4FMOD_EVENT_CALLBACKTYPE@@PAX22@Z2@Z", 16, -1},
+            {"?setUserData@Event@FMOD@@QAG?AW4FMOD_RESULT@@PAX@Z", 12, -1},
+            {"?set3DAttributes@Event@FMOD@@QAG?AW4FMOD_RESULT@@PBUFMOD_VECTOR@@00@Z", 20, -1},
+            {"?getChannelGroup@Event@FMOD@@QAG?AW4FMOD_RESULT@@PAPAVChannelGroup@2@@Z", 12, 8},
+            {"?start@Event@FMOD@@QAG?AW4FMOD_RESULT@@XZ", 8, -1},
+            {"?stop@Event@FMOD@@QAG?AW4FMOD_RESULT@@_N@Z", 12, -1},
+            {"?getParameter@Event@FMOD@@QAG?AW4FMOD_RESULT@@PBDPAPAVEventParameter@2@@Z", 16, 12},
+            {"?getParameterByIndex@Event@FMOD@@QAG?AW4FMOD_RESULT@@HPAPAVEventParameter@2@@Z", 16, 12},
+            {"?getRange@EventParameter@FMOD@@QAG?AW4FMOD_RESULT@@PAM0@Z", 16, -1},
+            {"?setValue@EventParameter@FMOD@@QAG?AW4FMOD_RESULT@@M@Z", 12, -1},
+            {"?getValue@EventParameter@FMOD@@QAG?AW4FMOD_RESULT@@PAM@Z", 12, -1},
+            {"?getInfo@EventParameter@FMOD@@QAG?AW4FMOD_RESULT@@PAHPAPAD@Z", 16, -1},
+            {"?setVolume@Event@FMOD@@QAG?AW4FMOD_RESULT@@M@Z", 12, -1},
+            {"?setPropertyByIndex@Event@FMOD@@QAG?AW4FMOD_RESULT@@HPAX_N@Z", 20, -1},
+            {"?setPaused@Event@FMOD@@QAG?AW4FMOD_RESULT@@_N@Z", 12, -1},
+            {"?getPaused@Event@FMOD@@QAG?AW4FMOD_RESULT@@PA_N@Z", 12, -1},
+            {"?setMute@Event@FMOD@@QAG?AW4FMOD_RESULT@@_N@Z", 12, -1},
+            {"?getMute@Event@FMOD@@QAG?AW4FMOD_RESULT@@PA_N@Z", 12, -1},
+            {"?getState@Event@FMOD@@QAG?AW4FMOD_RESULT@@PAI@Z", 12, -1},
+            {"?getInfo@Event@FMOD@@QAG?AW4FMOD_RESULT@@PAHPAPADPAUFMOD_EVENT_INFO@@@Z", 20, -1},
+            {"?getUserData@Event@FMOD@@QAG?AW4FMOD_RESULT@@PAPAX@Z", 12, -1},
+            {"_FMOD_EventSystem_Create@4", 8, -1},
+            {"?load@EventSystem@FMOD@@QAG?AW4FMOD_RESULT@@PBDPAUFMOD_EVENT_LOADINFO@@PAPAVEventProject@2@@Z", 20, 16},
+            {"?getCategory@EventSystem@FMOD@@QAG?AW4FMOD_RESULT@@PBDPAPAVEventCategory@2@@Z", 16, 12},
+            {"?unload@EventSystem@FMOD@@QAG?AW4FMOD_RESULT@@XZ", 8, -1},
+            {"?getGroup@EventSystem@FMOD@@QAG?AW4FMOD_RESULT@@PBD_NPAPAVEventGroup@2@@Z", 20, 16},
+            {"?getEvent@EventSystem@FMOD@@QAG?AW4FMOD_RESULT@@PBDIPAPAVEvent@2@@Z", 20, 16},
+            {"?getPropertyByIndex@Event@FMOD@@QAG?AW4FMOD_RESULT@@HPAX_N@Z", 20, -1},
+            {"?getVersion@EventSystem@FMOD@@QAG?AW4FMOD_RESULT@@PAI@Z", 12, -1},
+            {"?getSystemObject@EventSystem@FMOD@@QAG?AW4FMOD_RESULT@@PAPAVSystem@2@@Z", 12, -1},
+            {"?init@EventSystem@FMOD@@QAG?AW4FMOD_RESULT@@HIPAXI@Z", 24, -1},
+            {"?getCategoryByIndex@EventSystem@FMOD@@QAG?AW4FMOD_RESULT@@HPAPAVEventCategory@2@@Z", 16, 12},
+            {"?update@EventSystem@FMOD@@QAG?AW4FMOD_RESULT@@XZ", 8, -1},
+            {"?release@EventSystem@FMOD@@QAG?AW4FMOD_RESULT@@XZ", 8, -1},
+            {"?set3DListenerAttributes@EventSystem@FMOD@@QAG?AW4FMOD_RESULT@@HPBUFMOD_VECTOR@@000@Z", 28, -1},
+            {"?setReverbAmbientProperties@EventSystem@FMOD@@QAG?AW4FMOD_RESULT@@PAUFMOD_REVERB_PROPERTIES@@@Z", 12, -1},
+            {"?getInfo@EventSystem@FMOD@@QAG?AW4FMOD_RESULT@@PAUFMOD_EVENT_SYSTEMINFO@@@Z", 12, -1},
+            {"?getNumCategories@EventSystem@FMOD@@QAG?AW4FMOD_RESULT@@PAH@Z", 12, -1},
+            {"?NetEventSystem_Update@FMOD@@YG?AW4FMOD_RESULT@@XZ", 4, -1},
+            {"?NetEventSystem_Init@FMOD@@YG?AW4FMOD_RESULT@@PAVEventSystem@1@G@Z", 12, -1},
+            {"?NetEventSystem_Shutdown@FMOD@@YG?AW4FMOD_RESULT@@XZ", 4, -1},
+        };
+        for (const auto& sg : kSigs) {
+            if (fn == sg.n) {
+                if (sg.outObj >= 0) wr32(static_cast<uint32_t>(sg.outObj), allocFmod());
+                if (fn == "_FMOD_EventSystem_Create@4") wr32(4u, 0x6E000010u);
+                else if (fn.find("?getSystemObject@") == 0) wr32(8u, 0x6E000020u);
+                else if (fn.find("?getVersion@") == 0) wr32(8u, 0x00043200u);
+                else if (fn.find("?getDriverCaps@") == 0) { wr32(12u, 0u); wr32(16u, 44100u); wr32(20u, 48000u); wr32(24u, 2u); }
+                else if (fn.find("?getCPUUsage@") == 0) { for (uint32_t o = 8u; o <= 24u; o += 4u) wr32(o, 0u); }
+                else if (fn == "_FMOD_Memory_GetStats@12") { wr32(4u, 0u); wr32(8u, 0u); }
+                else if (fn.find("?getRange@") == 0) { wr32(8u, 0u); wr32(12u, 0x3F800000u); }
+                else if (fn.find("?setUserData@") == 0) {
+                    uint32_t th = 0u, ud = 0u; cpu->readGuestMemory(esp + 4, &th, 4); cpu->readGuestMemory(esp + 8, &ud, 4);
+                    s_fmodUD[th] = ud;
+                } else if (fn.find("?getUserData@") == 0) {
+                    uint32_t th = 0u; cpu->readGuestMemory(esp + 4, &th, 4);
+                    wr32(8u, s_fmodUD.count(th) ? s_fmodUD[th] : 0u);
+                } else if (fn.find("?getInfo@EventSystem@") == 0) {
+                    uint32_t p = 0u; cpu->readGuestMemory(esp + 8, &p, 4);
+                    if (p >= 0x10000u) { uint8_t z[24] = {}; cpu->writeGuestMemory(p, z, 24); }
+                } else if (fn.find("?getInfo@Event") == 0) { wr32(8u, 0u); wr32(12u, 0x6E000F00u); }
+                else if (fn.find("?addPolygon@") == 0) wr32(28u, 0u);
+                else if (fn.find("?getNumCategories@") == 0 || fn.find("?getOutput@") == 0 ||
+                         fn.find("?getValue@") == 0 || fn.find("?getPaused@") == 0 ||
+                         fn.find("?getMute@") == 0 || fn.find("?getActive@") == 0 ||
+                         fn.find("?getState@") == 0) wr32(8u, 0u);
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + sg.pop);
+                outNextEip = returnAddr; logSym(sym); return true;
+            }
+        }
+    }
+
     if (sym == "dinput8.dll!DirectInput8Create" || sym == "dynamic!DirectInput8Create") {
         uint32_t riid = 0u, ppvOut = 0u;
         cpu->readGuestMemory(esp + 12, &riid,   4);
