@@ -4717,6 +4717,124 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "user32.dll!GetKeyboardLayout") {
+        cpu->writeRegister(X86Reg::EAX, 0x04090409u); // en-US HKL
+        cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!GetKeyboardLayoutNameA" || sym == "user32.dll!GetKeyboardLayoutNameW") {
+        bool isW = (sym.back() == 87);
+        uint32_t bufPtr = 0u;
+        cpu->readGuestMemory(esp + 4, &bufPtr, 4);
+        if (bufPtr >= 0x10000u) {
+            if (isW) { const char16_t s[] = u"00000409"; cpu->writeGuestMemory(bufPtr, s, sizeof(s)); }
+            else     { const char s[] = "00000409";      cpu->writeGuestMemory(bufPtr, s, sizeof(s)); }
+        }
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!GetKeyboardType") {
+        uint32_t flag = 0u;
+        cpu->readGuestMemory(esp + 4, &flag, 4);
+        uint32_t res = (flag == 0u) ? 4u : ((flag == 2u) ? 12u : 0u);
+        cpu->writeRegister(X86Reg::EAX, res);
+        cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!MapVirtualKeyA" || sym == "user32.dll!MapVirtualKeyW" ||
+        sym == "user32.dll!MapVirtualKeyExA" || sym == "user32.dll!MapVirtualKeyExW") {
+        bool isEx = (sym.find("Ex") != std::string::npos);
+        uint32_t uCode = 0u;
+        cpu->readGuestMemory(esp + 4, &uCode, 4);
+        cpu->writeRegister(X86Reg::EAX, uCode);
+        cpu->writeRegister(X86Reg::ESP, esp + (isEx ? 16u : 12u)); // stdcall
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!GetKeyNameTextA" || sym == "user32.dll!GetKeyNameTextW") {
+        bool isW = (sym.back() == 87);
+        uint32_t bufPtr = 0u, cch = 0u;
+        cpu->readGuestMemory(esp + 8,  &bufPtr, 4);
+        cpu->readGuestMemory(esp + 12, &cch,    4);
+        uint32_t len = 0u;
+        if (bufPtr >= 0x10000u && cch > 1u) {
+            if (isW) { const char16_t s[] = u"Key"; len = (cch > 3u) ? 3u : (cch - 1u); cpu->writeGuestMemory(bufPtr, s, (len + 1u) * 2u); }
+            else     { const char s[] = "Key";      len = (cch > 3u) ? 3u : (cch - 1u); cpu->writeGuestMemory(bufPtr, s, len + 1u); }
+        }
+        cpu->writeRegister(X86Reg::EAX, len);
+        cpu->writeRegister(X86Reg::ESP, esp + 16u); // stdcall (3 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!GetKeyboardState") {
+        uint32_t pState = 0u;
+        cpu->readGuestMemory(esp + 4, &pState, 4);
+        if (pState >= 0x10000u) { uint8_t z[256] = {}; cpu->writeGuestMemory(pState, z, sizeof(z)); }
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!GetKeyState" || sym == "user32.dll!GetAsyncKeyState") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!VkKeyScanA" || sym == "user32.dll!VkKeyScanW" ||
+        sym == "user32.dll!VkKeyScanExA" || sym == "user32.dll!VkKeyScanExW") {
+        bool isEx = (sym.find("Ex") != std::string::npos);
+        uint32_t ch = 0u;
+        cpu->readGuestMemory(esp + 4, &ch, 4);
+        cpu->writeRegister(X86Reg::EAX, ch & 0xFFu);
+        cpu->writeRegister(X86Reg::ESP, esp + (isEx ? 12u : 8u)); // stdcall
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!ToAscii") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 24u); // stdcall (5 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!ToAsciiEx" || sym == "user32.dll!ToUnicode") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 28u); // stdcall (6 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!ToUnicodeEx") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 32u); // stdcall (7 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
     if (sym == "msvcr100.dll!___lc_codepage_func") {
         cpu->writeRegister(X86Reg::EAX, 0u); // C locale
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
