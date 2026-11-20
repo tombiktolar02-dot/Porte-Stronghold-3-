@@ -23,6 +23,34 @@ std::string ThunkDispatcher::resolveAddress(uint32_t thunkAddr) const {
     return "UNKNOWN_THUNK";
 }
 
+alignas(4096) static uint8_t s_fmodPage[4096] = {};
+static bool s_fmodMapped = false;
+static uint32_t s_fmodNext = 0x6E000030u;
+
+static uint32_t fmodAllocObj(IX86CPU* cpu, uint32_t iface) {
+    if (!s_fmodMapped) {
+        for (uint32_t f = 0; f < 5u; ++f) {
+            for (uint32_t sl = 0; sl < 32u; ++sl) {
+                uint32_t trap = 0x7000D000u + (f << 8) + (sl << 2);
+                memcpy(s_fmodPage + 0x800u + (f << 7) + (sl << 2), &trap, 4);
+            }
+        }
+        memcpy(s_fmodPage + 0xF00u, "master", 7);
+        uint32_t vtGen = 0x6E000A00u;
+        memcpy(s_fmodPage + 0x10u, &vtGen, 4);
+        memcpy(s_fmodPage + 0x20u, &vtGen, 4);
+        cpu->mapGuestMemory(0x6E000000u, 4096u, s_fmodPage);
+        s_fmodMapped = true;
+    }
+    if (iface > 4u) iface = 4u;
+    if (s_fmodNext >= 0x6E0007E0u) s_fmodNext = 0x6E000030u;
+    uint32_t h = s_fmodNext;
+    s_fmodNext += 16u;
+    uint32_t vt = 0x6E000800u + (iface << 7);
+    cpu->writeGuestMemory(h, &vt, 4);
+    return h;
+}
+
 bool ThunkDispatcher::onThunkTrap(uint32_t thunkAddr, uint32_t returnAddr) {
     m_lastTrappedAddr = thunkAddr;
     m_lastReturnAddr  = returnAddr;
@@ -477,6 +505,57 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
             }
         }
         return false;
+    }
+
+    if (thunkAddr >= 0x7000D000u && thunkAddr < 0x7000D500u) {
+        uint32_t iface = (thunkAddr - 0x7000D000u) >> 8;
+        uint32_t slot  = ((thunkAddr - 0x7000D000u) & 0xFFu) >> 2;
+        auto wr32 = [&](uint32_t off, uint32_t val) {
+            uint32_t p = 0u; cpu->readGuestMemory(esp + off, &p, 4);
+            if (p >= 0x10000u) cpu->writeGuestMemory(p, &val, 4);
+        };
+        auto wr8 = [&](uint32_t off, uint8_t val) {
+            uint32_t p = 0u; cpu->readGuestMemory(esp + off, &p, 4);
+            if (p >= 0x10000u) cpu->writeGuestMemory(p, &val, 1);
+        };
+        uint32_t pop = 8u;
+        if (iface == 0u) { // EventProject
+            static const uint8_t kPop[] = {8,12,20,20,12,20,20,12,28,12,8,12,12,24,8};
+            pop = (slot < sizeof(kPop)) ? kPop[slot] : 8u;
+            if (slot == 1u) {
+                uint32_t p = 0u; cpu->readGuestMemory(esp + 8, &p, 4);
+                if (p >= 0x10000u) { uint8_t z[268] = {}; memcpy(z + 4, "sh3", 4); cpu->writeGuestMemory(p, z, sizeof(z)); }
+            } else if (slot == 2u || slot == 3u) wr32(16u, fmodAllocObj(cpu, 2u));
+            else if (slot == 4u || slot == 7u || slot == 12u) wr32(8u, 0u);
+            else if (slot == 5u || slot == 6u) wr32(16u, fmodAllocObj(cpu, 4u));
+        } else if (iface == 1u) { // EventCategory
+            static const uint8_t kPop[] = {16,16,16,12,20,12,12,8,12,12,16,16,12,12,12,12,12,12,12,24,8};
+            pop = (slot < sizeof(kPop)) ? kPop[slot] : 8u;
+            if (slot == 0u) { wr32(8u, 0u); wr32(12u, 0x6E000F00u); }
+            else if (slot == 1u || slot == 2u) wr32(12u, fmodAllocObj(cpu, 1u));
+            else if (slot == 3u || slot == 5u || slot == 6u || slot == 11u || slot == 18u) wr32(8u, 0u);
+            else if (slot == 4u) wr32(16u, fmodAllocObj(cpu, 4u));
+            else if (slot == 9u) wr32(8u, 0x3F800000u);
+            else if (slot == 13u || slot == 15u) wr8(8u, 0u);
+            else if (slot == 16u) wr32(8u, fmodAllocObj(cpu, 4u));
+        } else if (iface == 2u) { // EventGroup
+            static const uint8_t kPop[] = {16,16,16,20,20,12,12,12,20,20,12,16,16,12,12,12,12,24,8};
+            pop = (slot < sizeof(kPop)) ? kPop[slot] : 8u;
+            if (slot == 0u) { wr32(8u, 0u); wr32(12u, 0x6E000F00u); }
+            else if (slot == 3u || slot == 4u) wr32(16u, fmodAllocObj(cpu, 2u));
+            else if (slot == 5u || slot == 7u || slot == 10u || slot == 13u || slot == 14u || slot == 16u) wr32(8u, 0u);
+            else if (slot == 6u) wr32(8u, fmodAllocObj(cpu, 0u));
+            else if (slot == 8u || slot == 9u) wr32(16u, fmodAllocObj(cpu, 4u));
+        } else if (iface == 3u) { // EventReverb
+            static const uint8_t kPop[] = {8,20,20,12,12,12,12,12,12,24,8};
+            pop = (slot < sizeof(kPop)) ? kPop[slot] : 8u;
+            if (slot == 6u) wr8(8u, 0u);
+            else if (slot == 8u) wr32(8u, 0u);
+        }
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + pop);
+        outNextEip = returnAddr;
+        return true;
     }
 
     if (thunkAddr >= 0x7000A000u && thunkAddr < 0x7000A800u) {
@@ -5488,28 +5567,8 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
 
     if (sym.rfind("fmodex.dll!", 0) == 0 || sym.rfind("fmod_event.dll!", 0) == 0 ||
         sym.rfind("fmod_event_net.dll!", 0) == 0) {
-        alignas(4096) static uint8_t s_fmodPage[4096] = {};
-        static bool s_fmodMapped = false;
-        static uint32_t s_fmodNext = 0x6E000030u;
         static std::unordered_map<uint32_t, uint32_t> s_fmodUD;
-        if (!s_fmodMapped) {
-            for (uint32_t i = 0; i < 64u; ++i) {
-                uint32_t trap = 0x6E00F000u + (i << 2);
-                memcpy(s_fmodPage + 0x800u + (i << 2), &trap, 4);
-            }
-            uint32_t vt = 0x6E000800u;
-            memcpy(s_fmodPage + 0x10u, &vt, 4);
-            memcpy(s_fmodPage + 0x20u, &vt, 4);
-            cpu->mapGuestMemory(0x6E000000u, 4096u, s_fmodPage);
-            s_fmodMapped = true;
-        }
-        auto allocFmod = [&]() -> uint32_t {
-            if (s_fmodNext >= 0x6E0007E0u) s_fmodNext = 0x6E000030u;
-            uint32_t h = s_fmodNext; s_fmodNext += 16u;
-            uint32_t vt = 0x6E000800u;
-            cpu->writeGuestMemory(h, &vt, 4);
-            return h;
-        };
+        if (!s_fmodMapped) (void)fmodAllocObj(cpu, 4u);
         auto wr32 = [&](uint32_t off, uint32_t val) {
             uint32_t p = 0u; cpu->readGuestMemory(esp + off, &p, 4);
             if (p >= 0x10000u) cpu->writeGuestMemory(p, &val, 4);
@@ -5594,7 +5653,14 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         };
         for (const auto& sg : kSigs) {
             if (fn == sg.n) {
-                if (sg.outObj >= 0) wr32(static_cast<uint32_t>(sg.outObj), allocFmod());
+                if (sg.outObj >= 0) {
+                    uint32_t ifc = 4u;
+                    if (fn.find("EventProject@") != std::string::npos) ifc = 0u;
+                    else if (fn.find("EventCategory@") != std::string::npos) ifc = 1u;
+                    else if (fn.find("EventGroup@") != std::string::npos) ifc = 2u;
+                    else if (fn.find("EventReverb@") != std::string::npos) ifc = 3u;
+                    wr32(static_cast<uint32_t>(sg.outObj), fmodAllocObj(cpu, ifc));
+                }
                 if (fn == "_FMOD_EventSystem_Create@4") wr32(4u, 0x6E000010u);
                 else if (fn.find("?getSystemObject@") == 0) wr32(8u, 0x6E000020u);
                 else if (fn.find("?getVersion@") == 0) wr32(8u, 0x00043200u);
