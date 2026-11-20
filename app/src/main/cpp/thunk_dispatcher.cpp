@@ -36,6 +36,183 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
     std::string sym = resolveAddress(thunkAddr);
     uint32_t esp = cpu->readRegister(X86Reg::ESP);
 
+    if (thunkAddr >= 0x7000C000u && thunkAddr < 0x7000C100u) {
+        uint32_t slot = (thunkAddr - 0x7000C000u) >> 2;
+        if (slot == 0) { // IDirect3D9::QueryInterface
+            uint32_t thisPtr = 0u, ppv = 0u;
+            cpu->readGuestMemory(esp + 4,  &thisPtr, 4);
+            cpu->readGuestMemory(esp + 12, &ppv,     4);
+            if (ppv >= 0x10000u) cpu->writeGuestMemory(ppv, &thisPtr, 4);
+            cpu->writeRegister(X86Reg::EAX, 0u);
+            cpu->writeRegister(X86Reg::ESP, esp + 16u);
+            outNextEip = returnAddr;
+            logSym(sym);
+            return true;
+        }
+        if (slot == 1 || slot == 2) { // AddRef / Release
+            cpu->writeRegister(X86Reg::EAX, (slot == 1) ? 2u : 1u);
+            cpu->writeRegister(X86Reg::ESP, esp + 8u);
+            outNextEip = returnAddr;
+            logSym(sym);
+            return true;
+        }
+        if (slot == 3) { // RegisterSoftwareDevice
+            cpu->writeRegister(X86Reg::EAX, 0u);
+            cpu->writeRegister(X86Reg::ESP, esp + 12u);
+            outNextEip = returnAddr;
+            logSym(sym);
+            return true;
+        }
+        if (slot == 4) { // GetAdapterCount
+            cpu->writeRegister(X86Reg::EAX, 1u);
+            cpu->writeRegister(X86Reg::ESP, esp + 8u);
+            outNextEip = returnAddr;
+            logSym(sym);
+            return true;
+        }
+        if (slot == 5) { // GetAdapterIdentifier(this, Adapter, Flags, pIdentifier)
+            uint32_t pId = 0u;
+            cpu->readGuestMemory(esp + 16, &pId, 4);
+            if (pId >= 0x10000u) {
+                std::vector<uint8_t> idBuf(1100, 0u);
+                const char drv[] = "d3d9.dll";
+                const char desc[] = "Stronghold3 ARM64 Virtual GPU";
+                const char dev[] = "\\\\.\\DISPLAY1";
+                memcpy(idBuf.data(),        drv,  sizeof(drv));
+                memcpy(idBuf.data() + 512,  desc, sizeof(desc));
+                memcpy(idBuf.data() + 1024, dev,  sizeof(dev));
+                uint32_t vendorId = 0x10DEu, deviceId = 0x1180u;
+                memcpy(idBuf.data() + 1064, &vendorId, 4);
+                memcpy(idBuf.data() + 1068, &deviceId, 4);
+                cpu->writeGuestMemory(pId, idBuf.data(), idBuf.size());
+            }
+            cpu->writeRegister(X86Reg::EAX, 0u);
+            cpu->writeRegister(X86Reg::ESP, esp + 20u);
+            outNextEip = returnAddr;
+            logSym(sym);
+            return true;
+        }
+        if (slot == 6) { // GetAdapterModeCount
+            cpu->writeRegister(X86Reg::EAX, 1u);
+            cpu->writeRegister(X86Reg::ESP, esp + 16u);
+            outNextEip = returnAddr;
+            logSym(sym);
+            return true;
+        }
+        if (slot == 7 || slot == 8) { // EnumAdapterModes / GetAdapterDisplayMode
+            uint32_t pMode = 0u;
+            cpu->readGuestMemory(esp + ((slot == 7) ? 20u : 12u), &pMode, 4);
+            if (pMode >= 0x10000u) {
+                uint32_t dm[4] = { 1280u, 720u, 60u, 22u }; // 1280x720@60 X8R8G8B8
+                cpu->writeGuestMemory(pMode, dm, sizeof(dm));
+            }
+            cpu->writeRegister(X86Reg::EAX, 0u);
+            cpu->writeRegister(X86Reg::ESP, esp + ((slot == 7) ? 24u : 16u));
+            outNextEip = returnAddr;
+            logSym(sym);
+            return true;
+        }
+        if (slot == 9 || slot == 12) { // CheckDeviceType / CheckDepthStencilMatch
+            cpu->writeRegister(X86Reg::EAX, 0u);
+            cpu->writeRegister(X86Reg::ESP, esp + 28u);
+            outNextEip = returnAddr;
+            logSym(sym);
+            return true;
+        }
+        if (slot == 10 || slot == 11) { // CheckDeviceFormat / CheckDeviceMultiSampleType
+            if (slot == 11) {
+                uint32_t pQual = 0u;
+                cpu->readGuestMemory(esp + 28, &pQual, 4);
+                if (pQual >= 0x10000u) { uint32_t q = 1u; cpu->writeGuestMemory(pQual, &q, 4); }
+            }
+            cpu->writeRegister(X86Reg::EAX, 0u);
+            cpu->writeRegister(X86Reg::ESP, esp + 32u);
+            outNextEip = returnAddr;
+            logSym(sym);
+            return true;
+        }
+        if (slot == 13) { // CheckDeviceFormatConversion
+            cpu->writeRegister(X86Reg::EAX, 0u);
+            cpu->writeRegister(X86Reg::ESP, esp + 24u);
+            outNextEip = returnAddr;
+            logSym(sym);
+            return true;
+        }
+        if (slot == 14) { // GetDeviceCaps(this, Adapter, DevType, pCaps)
+            uint32_t pCaps = 0u;
+            cpu->readGuestMemory(esp + 16, &pCaps, 4);
+            if (pCaps >= 0x10000u) {
+                uint32_t caps[76] = {};
+                caps[0]  = 1u;          // D3DDEVTYPE_HAL
+                caps[2]  = 0x00020000u; // Caps
+                caps[3]  = 0x60020000u; // Caps2
+                caps[5]  = 0x001BBEF0u; // DevCaps
+                caps[6]  = 0x002FCCF2u; // PrimitiveMiscCaps
+                caps[7]  = 0x07732191u; // RasterCaps
+                caps[12] = 0x0001EC45u; // TextureCaps
+                caps[20] = 4096u;       // MaxTextureWidth
+                caps[21] = 4096u;       // MaxTextureHeight
+                caps[22] = 2048u;       // MaxVolumeExtent
+                caps[23] = 8192u;       // MaxTextureRepeat
+                caps[24] = 4096u;       // MaxTextureAspectRatio
+                caps[25] = 16u;         // MaxAnisotropy
+                caps[33] = 8u;          // MaxTextureBlendStages
+                caps[34] = 8u;          // MaxSimultaneousTextures
+                caps[39] = 8u;          // MaxActiveLights
+                caps[40] = 6u;          // MaxUserClipPlanes
+                caps[41] = 4u;          // MaxVertexBlendMatrices
+                caps[42] = 255u;        // MaxVertexBlendMatrixIndex
+                caps[44] = 1048575u;    // MaxPrimitiveCount
+                caps[45] = 1048575u;    // MaxVertexIndex
+                caps[46] = 16u;         // MaxStreams
+                caps[47] = 255u;        // MaxStreamStride
+                caps[48] = 0xFFFE0300u; // VertexShaderVersion 3.0
+                caps[49] = 256u;        // MaxVertexShaderConst
+                caps[50] = 0xFFFF0300u; // PixelShaderVersion 3.0
+                caps[64] = 4u;          // NumSimultaneousRTs
+                caps[73] = 512u;        // VS30InstructionSlots
+                caps[75] = 512u;        // PS30InstructionSlots
+                cpu->writeGuestMemory(pCaps, caps, sizeof(caps));
+            }
+            cpu->writeRegister(X86Reg::EAX, 0u);
+            cpu->writeRegister(X86Reg::ESP, esp + 20u);
+            outNextEip = returnAddr;
+            logSym(sym);
+            return true;
+        }
+        if (slot == 15) { // GetAdapterMonitor
+            cpu->writeRegister(X86Reg::EAX, 0x00010001u);
+            cpu->writeRegister(X86Reg::ESP, esp + 12u);
+            outNextEip = returnAddr;
+            logSym(sym);
+            return true;
+        }
+        if (slot == 16) { // CreateDevice(this, Adapter, DevType, hWnd, Flags, pPP, ppDev)
+            uint32_t ppDev = 0u;
+            cpu->readGuestMemory(esp + 28, &ppDev, 4);
+            uint32_t vtAddr = allocGuest(119 * 4);
+            uint32_t devObj = allocGuest(16);
+            if (vtAddr != 0u && devObj != 0u) {
+                uint32_t vt[119];
+                for (uint32_t si = 0; si < 119; ++si) {
+                    vt[si] = 0x7000C100u + si * 4u;
+                    char vname[64];
+                    snprintf(vname, sizeof(vname), "IDirect3DDevice9::vslot[%u]", si);
+                    m_reverseMap[vt[si]] = vname;
+                }
+                cpu->writeGuestMemory(vtAddr, vt, sizeof(vt));
+                cpu->writeGuestMemory(devObj, &vtAddr, 4);
+                if (ppDev >= 0x10000u) cpu->writeGuestMemory(ppDev, &devObj, 4);
+            }
+            cpu->writeRegister(X86Reg::EAX, 0u); // D3D_OK
+            cpu->writeRegister(X86Reg::ESP, esp + 32u);
+            outNextEip = returnAddr;
+            logSym(sym);
+            return true;
+        }
+        return false;
+    }
+
     if (thunkAddr >= 0x7000B000u && thunkAddr < 0x7000B200u) {
         uint32_t iface = (thunkAddr - 0x7000B000u) >> 8;
         uint32_t slot  = ((thunkAddr - 0x7000B000u) & 0xFFu) >> 2;
@@ -5010,6 +5187,33 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         if (ppvOut >= 0x10000u) cpu->writeGuestMemory(ppvOut, &s_di8Obj, 4);
         cpu->writeRegister(X86Reg::EAX, 0u); // DI_OK
         cpu->writeRegister(X86Reg::ESP, esp + 24u); // stdcall (5 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "d3d9.dll!Direct3DCreate9" || sym == "dynamic!Direct3DCreate9") {
+        static uint32_t s_d3d9Obj = 0u;
+        uint32_t existingVt = 0u;
+        if (s_d3d9Obj != 0u) cpu->readGuestMemory(s_d3d9Obj, &existingVt, 4);
+        if (s_d3d9Obj == 0u || existingVt == 0u) {
+            uint32_t vtAddr = allocGuest(17 * 4);
+            uint32_t objAddr = allocGuest(16);
+            if (vtAddr != 0u && objAddr != 0u) {
+                uint32_t vt[17];
+                for (uint32_t si = 0; si < 17; ++si) {
+                    vt[si] = 0x7000C000u + si * 4u;
+                    char vname[64];
+                    snprintf(vname, sizeof(vname), "IDirect3D9::vslot[%u]", si);
+                    m_reverseMap[vt[si]] = vname;
+                }
+                cpu->writeGuestMemory(vtAddr, vt, sizeof(vt));
+                cpu->writeGuestMemory(objAddr, &vtAddr, 4);
+                s_d3d9Obj = objAddr;
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, s_d3d9Obj);
+        cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg: SDKVersion)
         outNextEip = returnAddr;
         logSym(sym);
         return true;
