@@ -4219,6 +4219,167 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "msvcr100.dll!_setjmp3" || sym == "msvcr100.dll!_setjmp") {
+        uint32_t envPtr = 0;
+        cpu->readGuestMemory(esp + 4, &envPtr, 4);
+        if (envPtr >= 0x10000u) {
+            uint32_t jb[16] = {};
+            jb[0] = cpu->readRegister(X86Reg::EBP);
+            jb[1] = cpu->readRegister(X86Reg::EBX);
+            jb[2] = cpu->readRegister(X86Reg::EDI);
+            jb[3] = cpu->readRegister(X86Reg::ESI);
+            jb[4] = esp + 4u;
+            jb[5] = returnAddr;
+            uint32_t seh = 0xFFFFFFFFu;
+            cpu->readGuestMemory(0x7ffdf000u, &seh, 4);
+            jb[6] = seh;
+            jb[7] = 0xFFFFFFFFu;
+            jb[8] = 0x56433230u; // VC20
+            cpu->writeGuestMemory(envPtr, jb, sizeof(jb));
+        }
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!longjmp") {
+        uint32_t envPtr = 0, val = 0;
+        cpu->readGuestMemory(esp + 4, &envPtr, 4);
+        cpu->readGuestMemory(esp + 8, &val, 4);
+        if (envPtr >= 0x10000u) {
+            uint32_t jb[9] = {};
+            cpu->readGuestMemory(envPtr, jb, sizeof(jb));
+            cpu->writeRegister(X86Reg::EBP, jb[0]);
+            cpu->writeRegister(X86Reg::EBX, jb[1]);
+            cpu->writeRegister(X86Reg::EDI, jb[2]);
+            cpu->writeRegister(X86Reg::ESI, jb[3]);
+            cpu->writeRegister(X86Reg::ESP, jb[4]);
+            if (jb[6] != 0u) cpu->writeGuestMemory(0x7ffdf000u, &jb[6], 4);
+            cpu->writeRegister(X86Reg::EAX, (val == 0u) ? 1u : val);
+            outNextEip = jb[5];
+            logSym(sym);
+            return true;
+        }
+        return false;
+    }
+
+    if (sym == "msvcr100.dll!localeconv") {
+        static uint32_t s_lconv = 0;
+        uint32_t chkPtr = 0;
+        if (s_lconv != 0u) cpu->readGuestMemory(s_lconv, &chkPtr, 4);
+        if (s_lconv == 0u || chkPtr < 0x10000u) {
+            const char dotA[] = ".";
+            const char empA[] = "";
+            const char16_t dotW[] = u".";
+            const char16_t empW[] = u"";
+            uint32_t pDotA = allocGuest(sizeof(dotA));
+            uint32_t pEmpA = allocGuest(sizeof(empA));
+            uint32_t pDotW = allocGuest(sizeof(dotW));
+            uint32_t pEmpW = allocGuest(sizeof(empW));
+            if (pDotA != 0u) cpu->writeGuestMemory(pDotA, dotA, sizeof(dotA));
+            if (pEmpA != 0u) cpu->writeGuestMemory(pEmpA, empA, sizeof(empA));
+            if (pDotW != 0u) cpu->writeGuestMemory(pDotW, dotW, sizeof(dotW));
+            if (pEmpW != 0u) cpu->writeGuestMemory(pEmpW, empW, sizeof(empW));
+            s_lconv = allocGuest(96);
+            if (s_lconv != 0u) {
+                uint32_t ptrs[10] = { pDotA, pEmpA, pEmpA, pEmpA, pEmpA, pEmpA, pEmpA, pEmpA, pEmpA, pEmpA };
+                uint8_t flags[8] = { 127, 127, 127, 127, 127, 127, 127, 127 };
+                uint32_t wptrs[10] = { pDotW, pEmpW, pEmpW, pEmpW, pEmpW, pEmpW, pEmpW, pEmpW, pEmpW, pEmpW };
+                cpu->writeGuestMemory(s_lconv,      ptrs,  sizeof(ptrs));
+                cpu->writeGuestMemory(s_lconv + 40, flags, sizeof(flags));
+                cpu->writeGuestMemory(s_lconv + 48, wptrs, sizeof(wptrs));
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, s_lconv);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!strcoll") {
+        uint32_t s1 = 0, s2 = 0;
+        cpu->readGuestMemory(esp + 4, &s1, 4);
+        cpu->readGuestMemory(esp + 8, &s2, 4);
+        int32_t diff = 0;
+        if (s1 >= 0x10000u && s2 >= 0x10000u) {
+            for (uint32_t i = 0; i < 4096u; ++i) {
+                uint8_t c1 = 0, c2 = 0;
+                cpu->readGuestMemory(s1 + i, &c1, 1);
+                cpu->readGuestMemory(s2 + i, &c2, 1);
+                if (c1 != c2 || c1 == 0u) { diff = static_cast<int32_t>(c1) - static_cast<int32_t>(c2); break; }
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(diff));
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!strpbrk") {
+        uint32_t s1 = 0, s2 = 0;
+        cpu->readGuestMemory(esp + 4, &s1, 4);
+        cpu->readGuestMemory(esp + 8, &s2, 4);
+        uint32_t found = 0u;
+        if (s1 >= 0x10000u && s2 >= 0x10000u) {
+            std::string accept = readCStr(s2, 256);
+            for (uint32_t i = 0; i < 65536u; ++i) {
+                char c = 0;
+                cpu->readGuestMemory(s1 + i, &c, 1);
+                if (c == 0) break;
+                if (accept.find(c) != std::string::npos) { found = s1 + i; break; }
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, found);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!strspn" || sym == "msvcr100.dll!strcspn") {
+        bool isSpn = (sym == "msvcr100.dll!strspn");
+        uint32_t s1 = 0, s2 = 0;
+        cpu->readGuestMemory(esp + 4, &s1, 4);
+        cpu->readGuestMemory(esp + 8, &s2, 4);
+        uint32_t cnt = 0u;
+        if (s1 >= 0x10000u && s2 >= 0x10000u) {
+            std::string charset = readCStr(s2, 256);
+            for (uint32_t i = 0; i < 65536u; ++i) {
+                char c = 0;
+                cpu->readGuestMemory(s1 + i, &c, 1);
+                if (c == 0) break;
+                bool inSet = (charset.find(c) != std::string::npos);
+                if (isSpn ? !inSet : inSet) break;
+                ++cnt;
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, cnt);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!strerror") {
+        static uint32_t s_errStr = 0;
+        uint8_t chk = 0;
+        if (s_errStr != 0u) cpu->readGuestMemory(s_errStr, &chk, 1);
+        if (s_errStr == 0u || chk != 0x4Eu) {
+            const char msg[] = "No error";
+            s_errStr = allocGuest(sizeof(msg));
+            if (s_errStr != 0u) cpu->writeGuestMemory(s_errStr, msg, sizeof(msg));
+        }
+        cpu->writeRegister(X86Reg::EAX, s_errStr);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
     if (sym == "msvcr100.dll!___lc_codepage_func") {
         cpu->writeRegister(X86Reg::EAX, 0u); // C locale
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
