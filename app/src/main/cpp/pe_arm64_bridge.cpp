@@ -19,6 +19,8 @@
 #include "i_x86_cpu.h"
 #include "win32_env_setup.h"
 #include "thunk_dispatcher.h"
+#include <android/native_window_jni.h>
+#include "dxvk_backend_probe.h"
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "SH3_BRIDGE", __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "SH3_BRIDGE", __VA_ARGS__)
@@ -321,6 +323,7 @@ static std::string dumpEntryBytes(const LoadedModule& mod, size_t nBytes) {
 
 static std::string runStage5BootstrapProbe() {
     std::ostringstream out;
+    out << sh3DxvkRunLiveProbe() << "\n";
     out << "\n=== Stage 5: x86 CPU Interface + TEB/PEB + Thunk Trap ===\n";
     if (g_modules.empty()) {
         out << "[STAGE5 ERR] No modules mapped in memory.\n";
@@ -542,6 +545,14 @@ static std::string runStage5BootstrapProbe() {
 }
 
 extern "C" JNIEXPORT jstring JNICALL
+extern "C" JNIEXPORT void JNICALL
+Java_com_bolt_stronghold3wrapper_MainActivity_setNativeSurface(
+        JNIEnv* env, jobject /*thiz*/, jobject jSurface) {
+    ANativeWindow* win = jSurface ? ANativeWindow_fromSurface(env, jSurface) : nullptr;
+    sh3DxvkSetNativeWindow(win);
+    if (win) ANativeWindow_release(win);
+}
+
 Java_com_bolt_stronghold3wrapper_MainActivity_inspectEngineBinaries(
         JNIEnv* env, jobject /*thiz*/, jstring jBinDir) {
     for (auto& m : g_modules) {

@@ -85,6 +85,40 @@ jobs:
           } | "$AR" -M
           cp -r /tmp/unicorn-src/include/unicorn app/src/main/cpp/third_party/unicorn/include/
 
+      - name: Cache DXVK Android Static Library (arm64-v8a)
+        id: cache-dxvk
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/cpp/third_party/dxvk
+          key: dxvk-native-1.9.2b-android-arm64-ndk26.1-v1
+
+      - name: Build DXVK Android Static Library (arm64-v8a)
+        if: steps.cache-dxvk.outputs.cache-hit != 'true'
+        run: |
+          set -e
+          sudo apt-get update
+          sudo apt-get install -y glslang-tools spirv-tools python3
+          NDK_DIR="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk/26.1.10909125"
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/codepdbh/nfsu2-recompiled.git /tmp/nfsu2
+          git -C /tmp/nfsu2 sparse-checkout set ports/dxvk_android android/app/src/main/cpp
+          git clone --branch native-1.9.2b --depth 1 https://github.com/Joshua-Ashton/dxvk-native.git /tmp/dxvk-native
+          python3 /tmp/nfsu2/ports/dxvk_android/prepare.py /tmp/dxvk-native /tmp/dxvk-prepared
+          python3 /tmp/nfsu2/ports/dxvk_android/shaders.py /tmp/dxvk-prepared
+          cmake -S /tmp/nfsu2/ports/dxvk_android -B /tmp/dxvk-build \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK_DIR/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-26 \
+            -DDXVK_SOURCE=/tmp/dxvk-prepared \
+            -DDXVK_ANDROID_STATIC=ON \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/dxvk-build --target dxvk_android -j$(nproc)
+          mkdir -p app/src/main/cpp/third_party/dxvk/lib
+          mkdir -p app/src/main/cpp/third_party/dxvk/include/native
+          cp /tmp/dxvk-build/libdxvk_android.a app/src/main/cpp/third_party/dxvk/lib/
+          cp -r /tmp/dxvk-prepared/include/native/windows app/src/main/cpp/third_party/dxvk/include/native/
+          cp -r /tmp/dxvk-prepared/include/native/directx app/src/main/cpp/third_party/dxvk/include/native/
+          cp /tmp/dxvk-prepared/LICENSE app/src/main/cpp/third_party/dxvk/DXVK-LICENSE
+
       - name: Build APK
         run: gradle assembleRelease --no-daemon
 

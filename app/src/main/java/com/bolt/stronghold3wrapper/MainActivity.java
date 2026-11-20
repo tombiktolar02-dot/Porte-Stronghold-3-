@@ -7,6 +7,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.Settings;
+import android.view.Surface;
+import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.Window;
 import android.view.WindowManager;
@@ -21,7 +23,9 @@ public class MainActivity extends Activity {
             "/sdcard/Download/gamedata/Stronghold3/bin/win32_release";
 
     private OverlayView overlayView;
+    private volatile boolean inspectionStarted = false;
 
+    public native void setNativeSurface(Surface surface);
     public native String inspectEngineBinaries(String binDir);
 
     @Override
@@ -37,17 +41,35 @@ public class MainActivity extends Activity {
         SurfaceView surfaceView = new SurfaceView(this);
         overlayView = new OverlayView(this);
 
+        surfaceView.getHolder().addCallback(new SurfaceHolder.Callback() {
+            @Override
+            public void surfaceCreated(SurfaceHolder holder) {
+                setNativeSurface(holder.getSurface());
+                checkStorageAndRunInspection();
+            }
+
+            @Override
+            public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+                setNativeSurface(holder.getSurface());
+            }
+
+            @Override
+            public void surfaceDestroyed(SurfaceHolder holder) {
+                setNativeSurface(null);
+            }
+        });
+
         root.addView(surfaceView);
         root.addView(overlayView);
         setContentView(root);
-
-        checkStorageAndRunInspection();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        runNativeInspectionAsync();
+        if (!inspectionStarted) {
+            checkStorageAndRunInspection();
+        }
     }
 
     private void checkStorageAndRunInspection() {
@@ -61,7 +83,8 @@ public class MainActivity extends Activity {
                 Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
                 startActivity(intent);
             }
-        } else {
+        } else if (!inspectionStarted) {
+            inspectionStarted = true;
             runNativeInspectionAsync();
         }
     }
