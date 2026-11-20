@@ -4518,6 +4518,205 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "msvcr100.dll!__daylight" || sym == "msvcr100.dll!__timezone" ||
+        sym == "msvcr100.dll!__dstbias" || sym == "msvcr100.dll!__tzname") {
+        static uint32_t s_tzBlock = 0u;
+        uint32_t magic = 0u;
+        if (s_tzBlock != 0u) cpu->readGuestMemory(s_tzBlock, &magic, 4);
+        if (s_tzBlock == 0u || magic != 0x545A424Cu) {
+            s_tzBlock = allocGuest(64);
+            if (s_tzBlock != 0u) {
+                uint32_t hdr[6] = { 0x545A424Cu, 0u, 0u, 0u, s_tzBlock + 24u, s_tzBlock + 28u };
+                const char utc[] = "UTC";
+                cpu->writeGuestMemory(s_tzBlock,      hdr, sizeof(hdr));
+                cpu->writeGuestMemory(s_tzBlock + 24, utc, sizeof(utc));
+                cpu->writeGuestMemory(s_tzBlock + 28, utc, sizeof(utc));
+            }
+        }
+        uint32_t ptr = s_tzBlock + 4u;
+        if (sym == "msvcr100.dll!__timezone") ptr = s_tzBlock + 8u;
+        else if (sym == "msvcr100.dll!__dstbias") ptr = s_tzBlock + 12u;
+        else if (sym == "msvcr100.dll!__tzname") ptr = s_tzBlock + 16u;
+        cpu->writeRegister(X86Reg::EAX, ptr);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_tzset") {
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_get_daylight" || sym == "msvcr100.dll!_get_timezone" ||
+        sym == "msvcr100.dll!_get_dstbias") {
+        uint32_t pOut = 0u;
+        cpu->readGuestMemory(esp + 4, &pOut, 4);
+        if (pOut >= 0x10000u) { int32_t z = 0; cpu->writeGuestMemory(pOut, &z, 4); }
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_get_tzname") {
+        uint32_t pRet = 0u, bufPtr = 0u, bufSz = 0u;
+        cpu->readGuestMemory(esp + 4,  &pRet,   4);
+        cpu->readGuestMemory(esp + 8,  &bufPtr, 4);
+        cpu->readGuestMemory(esp + 12, &bufSz,  4);
+        const char utc[] = "UTC";
+        if (pRet >= 0x10000u) { uint32_t len = 4u; cpu->writeGuestMemory(pRet, &len, 4); }
+        if (bufPtr >= 0x10000u && bufSz >= 4u) cpu->writeGuestMemory(bufPtr, utc, 4);
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_ftime32" || sym == "msvcr100.dll!_ftime64" ||
+        sym == "msvcr100.dll!_ftime32_s" || sym == "msvcr100.dll!_ftime64_s") {
+        bool is64 = (sym.find("64") != std::string::npos);
+        uint32_t pTb = 0u;
+        cpu->readGuestMemory(esp + 4, &pTb, 4);
+        struct timespec ts{};
+        clock_gettime(CLOCK_REALTIME, &ts);
+        uint16_t ms = static_cast<uint16_t>(ts.tv_nsec / 1000000L);
+        int16_t zero16 = 0;
+        if (pTb >= 0x10000u) {
+            if (is64) {
+                int64_t sec64 = static_cast<int64_t>(ts.tv_sec);
+                cpu->writeGuestMemory(pTb,      &sec64,  8);
+                cpu->writeGuestMemory(pTb + 8,  &ms,     2);
+                cpu->writeGuestMemory(pTb + 10, &zero16, 2);
+                cpu->writeGuestMemory(pTb + 12, &zero16, 2);
+            } else {
+                int32_t sec32 = static_cast<int32_t>(ts.tv_sec);
+                cpu->writeGuestMemory(pTb,      &sec32,  4);
+                cpu->writeGuestMemory(pTb + 4,  &ms,     2);
+                cpu->writeGuestMemory(pTb + 6,  &zero16, 2);
+                cpu->writeGuestMemory(pTb + 8,  &zero16, 2);
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_localtime32" || sym == "msvcr100.dll!_localtime64" ||
+        sym == "msvcr100.dll!_gmtime32" || sym == "msvcr100.dll!_gmtime64") {
+        bool is64 = (sym.find("64") != std::string::npos);
+        bool isGm = (sym.find("gmtime") != std::string::npos);
+        uint32_t pTime = 0u;
+        cpu->readGuestMemory(esp + 4, &pTime, 4);
+        time_t tv = 0;
+        if (pTime >= 0x10000u) {
+            if (is64) { int64_t t64 = 0; cpu->readGuestMemory(pTime, &t64, 8); tv = static_cast<time_t>(t64); }
+            else      { int32_t t32 = 0; cpu->readGuestMemory(pTime, &t32, 4); tv = static_cast<time_t>(t32); }
+        }
+        struct tm tmv{};
+        if (isGm) gmtime_r(&tv, &tmv); else localtime_r(&tv, &tmv);
+        static uint32_t s_tmBuf = 0u;
+        uint32_t magic = 0u;
+        if (s_tmBuf != 0u) cpu->readGuestMemory(s_tmBuf + 36, &magic, 4);
+        if (s_tmBuf == 0u || magic != 0x544D4246u) {
+            s_tmBuf = allocGuest(40);
+            if (s_tmBuf != 0u) { uint32_t m = 0x544D4246u; cpu->writeGuestMemory(s_tmBuf + 36, &m, 4); }
+        }
+        if (s_tmBuf != 0u) {
+            int32_t f[9] = { tmv.tm_sec, tmv.tm_min, tmv.tm_hour, tmv.tm_mday, tmv.tm_mon, tmv.tm_year, tmv.tm_wday, tmv.tm_yday, tmv.tm_isdst };
+            cpu->writeGuestMemory(s_tmBuf, f, sizeof(f));
+        }
+        cpu->writeRegister(X86Reg::EAX, s_tmBuf);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_localtime32_s" || sym == "msvcr100.dll!_localtime64_s" ||
+        sym == "msvcr100.dll!_gmtime32_s" || sym == "msvcr100.dll!_gmtime64_s") {
+        bool is64 = (sym.find("64") != std::string::npos);
+        bool isGm = (sym.find("gmtime") != std::string::npos);
+        uint32_t pTm = 0u, pTime = 0u;
+        cpu->readGuestMemory(esp + 4, &pTm,   4);
+        cpu->readGuestMemory(esp + 8, &pTime, 4);
+        time_t tv = 0;
+        if (pTime >= 0x10000u) {
+            if (is64) { int64_t t64 = 0; cpu->readGuestMemory(pTime, &t64, 8); tv = static_cast<time_t>(t64); }
+            else      { int32_t t32 = 0; cpu->readGuestMemory(pTime, &t32, 4); tv = static_cast<time_t>(t32); }
+        }
+        struct tm tmv{};
+        if (isGm) gmtime_r(&tv, &tmv); else localtime_r(&tv, &tmv);
+        if (pTm >= 0x10000u) {
+            int32_t f[9] = { tmv.tm_sec, tmv.tm_min, tmv.tm_hour, tmv.tm_mday, tmv.tm_mon, tmv.tm_year, tmv.tm_wday, tmv.tm_yday, tmv.tm_isdst };
+            cpu->writeGuestMemory(pTm, f, sizeof(f));
+        }
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_mktime32" || sym == "msvcr100.dll!_mktime64") {
+        bool is64 = (sym.find("64") != std::string::npos);
+        uint32_t pTm = 0u;
+        cpu->readGuestMemory(esp + 4, &pTm, 4);
+        int64_t res = -1;
+        if (pTm >= 0x10000u) {
+            int32_t f[9] = {};
+            cpu->readGuestMemory(pTm, f, sizeof(f));
+            struct tm tmv{};
+            tmv.tm_sec = f[0]; tmv.tm_min = f[1]; tmv.tm_hour = f[2];
+            tmv.tm_mday = f[3]; tmv.tm_mon = f[4]; tmv.tm_year = f[5];
+            tmv.tm_wday = f[6]; tmv.tm_yday = f[7]; tmv.tm_isdst = f[8];
+            res = static_cast<int64_t>(mktime(&tmv));
+            int32_t nf[9] = { tmv.tm_sec, tmv.tm_min, tmv.tm_hour, tmv.tm_mday, tmv.tm_mon, tmv.tm_year, tmv.tm_wday, tmv.tm_yday, tmv.tm_isdst };
+            cpu->writeGuestMemory(pTm, nf, sizeof(nf));
+        }
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(res & 0xFFFFFFFFULL));
+        if (is64) cpu->writeRegister(X86Reg::EDX, static_cast<uint32_t>((static_cast<uint64_t>(res) >> 32) & 0xFFFFFFFFULL));
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!strftime") {
+        uint32_t dstPtr = 0u, maxSz = 0u, fmtPtr = 0u, pTm = 0u;
+        cpu->readGuestMemory(esp + 4,  &dstPtr, 4);
+        cpu->readGuestMemory(esp + 8,  &maxSz,  4);
+        cpu->readGuestMemory(esp + 12, &fmtPtr, 4);
+        cpu->readGuestMemory(esp + 16, &pTm,    4);
+        uint32_t written = 0u;
+        if (dstPtr >= 0x10000u && maxSz > 0u && fmtPtr >= 0x10000u && pTm >= 0x10000u) {
+            std::string fmt = readCStr(fmtPtr, 256);
+            int32_t f[9] = {};
+            cpu->readGuestMemory(pTm, f, sizeof(f));
+            struct tm tmv{};
+            tmv.tm_sec = f[0]; tmv.tm_min = f[1]; tmv.tm_hour = f[2];
+            tmv.tm_mday = f[3]; tmv.tm_mon = f[4]; tmv.tm_year = f[5];
+            tmv.tm_wday = f[6]; tmv.tm_yday = f[7]; tmv.tm_isdst = f[8];
+            uint32_t cap = (maxSz > 4096u) ? 4096u : maxSz;
+            std::vector<char> outBuf(cap, 0);
+            size_t n = strftime(outBuf.data(), cap, fmt.c_str(), &tmv);
+            written = static_cast<uint32_t>(n);
+            cpu->writeGuestMemory(dstPtr, outBuf.data(), (n + 1 <= cap) ? (n + 1) : cap);
+        }
+        cpu->writeRegister(X86Reg::EAX, written);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
     if (sym == "msvcr100.dll!___lc_codepage_func") {
         cpu->writeRegister(X86Reg::EAX, 0u); // C locale
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
