@@ -19,6 +19,7 @@ public:
 
     uint32_t lastTrappedAddress() const { return m_lastTrappedAddr; }
     uint32_t lastReturnAddress() const { return m_lastReturnAddr; }
+    const std::string& lastMsgBox() const { return m_lastMsgBox; }
     const std::string& lastTrappedSymbol() const { return m_lastTrappedSym; }
     const std::vector<std::string>& handledLog() const { return m_handledLog; }
 
@@ -38,6 +39,7 @@ private:
     std::unordered_map<uint32_t, std::vector<uint32_t>> m_freeBins;
     uint32_t    m_oomCount   = 0;
 
+    std::string m_lastMsgBox;
     std::string m_lastCmp;
 
     void logSym(const std::string& s) {
@@ -51,7 +53,7 @@ private:
             s.find("!sprintf") != std::string::npos || s.find("!_snprintf") != std::string::npos ||
             s.find("!_vsnprintf") != std::string::npos || s.find("!fread") != std::string::npos ||
             s.find("!ferror") != std::string::npos || s.find("!fseek") != std::string::npos ||
-            s.find("!ftell") != std::string::npos || s.find("!feof") != std::string::npos || s.find("!DecodePointer") != std::string::npos || s.find("!EncodePointer") != std::string::npos || s.find("!_lock") != std::string::npos || s.find("!_unlock") != std::string::npos || s.find("!__dllonexit") != std::string::npos || s == "msvcr100.dll!rand") return;
+            s.find("!ftell") != std::string::npos || s.find("!feof") != std::string::npos || s.find("!DecodePointer") != std::string::npos || s.find("!EncodePointer") != std::string::npos || s.find("!_lock") != std::string::npos || s.find("!_unlock") != std::string::npos || s.find("!__dllonexit") != std::string::npos || s == "msvcr100.dll!rand" || s == "msvcr100.dll!bsearch") return;
         if (m_handledLog.size() < 4096) m_handledLog.push_back(s);
     }
 

@@ -480,6 +480,9 @@ static std::string runStage5BootstrapProbe() {
              stepRes.reason.c_str(), totalSteps, dispatcher.handledLog().size(), stepRes.stopAddress);
     out << sbuf;
 
+    if (!dispatcher.lastMsgBox().empty()) {
+        out << "[LAST MSGBOX] " << dispatcher.lastMsgBox() << "\n";
+    }
     if (stepRes.reason == "WATCHDOG_TIMEOUT_90S") {
         snprintf(sbuf, sizeof(sbuf),
                  "[WATCHDOG] RealHLE=%u | LastHLE=0x%08X (%s) | LastRet=0x%08X | EAX=0x%08X ESP=0x%08X\n",

@@ -3517,6 +3517,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         std::string cap = readWStr(pCap, 120);
         char mbuf[512];
         snprintf(mbuf, sizeof(mbuf), "MSGBOX_W[%s]: %s (type=0x%X)", cap.c_str(), txt.c_str(), uType);
+        m_lastMsgBox = mbuf;
         m_handledLog.push_back(mbuf);
         cpu->writeRegister(X86Reg::EAX, 1u); // IDOK
         cpu->writeRegister(X86Reg::ESP, esp + (isEx ? 24u : 20u)); // stdcall
@@ -3535,9 +3536,126 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         std::string cap = (pCap >= 0x10000u) ? readCStr(pCap, 120) : "";
         char mbuf[512];
         snprintf(mbuf, sizeof(mbuf), "MSGBOX_A[%s]: %s (type=0x%X)", cap.c_str(), txt.c_str(), uType);
+        m_lastMsgBox = mbuf;
         m_handledLog.push_back(mbuf);
         cpu->writeRegister(X86Reg::EAX, 1u); // IDOK
         cpu->writeRegister(X86Reg::ESP, esp + (isEx ? 24u : 20u)); // stdcall
+        outNextEip = returnAddr;
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!__RTDynamicCast") {
+        uint32_t inptr = 0, srcType = 0, targetType = 0, isRef = 0;
+        int32_t vfDelta = 0;
+        cpu->readGuestMemory(esp + 4,  &inptr,      4);
+        cpu->readGuestMemory(esp + 8,  &vfDelta,    4);
+        cpu->readGuestMemory(esp + 12, &srcType,    4);
+        cpu->readGuestMemory(esp + 16, &targetType, 4);
+        cpu->readGuestMemory(esp + 20, &isRef,      4);
+        (void)srcType; (void)isRef;
+        uint32_t result = 0;
+        if (inptr >= 0x10000u && targetType >= 0x10000u) {
+            std::string targetName = readCStr(targetType + 8, 256);
+            uint32_t adjPtr = inptr - static_cast<uint32_t>(vfDelta);
+            uint32_t vftable = 0;
+            if (adjPtr >= 0x10000u) cpu->readGuestMemory(adjPtr, &vftable, 4);
+            uint32_t pCol = 0;
+            if (vftable >= 0x10004u) cpu->readGuestMemory(vftable - 4, &pCol, 4);
+            if (pCol >= 0x10000u) {
+                uint32_t col[5] = {};
+                cpu->readGuestMemory(pCol, col, sizeof(col));
+                uint32_t vtblOffset = col[1];
+                uint32_t cdOffset   = col[2];
+                uint32_t colTD      = col[3];
+                uint32_t pChd       = col[4];
+                uint32_t completeObj = adjPtr - vtblOffset;
+                if (cdOffset != 0 && adjPtr >= cdOffset + 4) {
+                    int32_t cdDisp = 0;
+                    cpu->readGuestMemory(adjPtr - cdOffset, &cdDisp, 4);
+                    completeObj -= static_cast<uint32_t>(cdDisp);
+                }
+                if (colTD == targetType || (colTD >= 0x10000u && !targetName.empty() && readCStr(colTD + 8, 256) == targetName)) {
+                    result = completeObj;
+                } else if (pChd >= 0x10000u) {
+                    uint32_t chd[4] = {};
+                    cpu->readGuestMemory(pChd, chd, sizeof(chd));
+                    uint32_t numBases = chd[2];
+                    uint32_t pBaseArr = chd[3];
+                    if (numBases > 256u) numBases = 256u;
+                    if (pBaseArr >= 0x10000u) {
+                        for (uint32_t bi = 0; bi < numBases; ++bi) {
+                            uint32_t pBcd = 0;
+                            cpu->readGuestMemory(pBaseArr + bi * 4, &pBcd, 4);
+                            if (pBcd < 0x10000u) continue;
+                            uint32_t bcd[6] = {};
+                            cpu->readGuestMemory(pBcd, bcd, sizeof(bcd));
+                            uint32_t baseTD = bcd[0];
+                            if (baseTD == targetType || (baseTD >= 0x10000u && !targetName.empty() && readCStr(baseTD + 8, 256) == targetName)) {
+                                int32_t mdisp = static_cast<int32_t>(bcd[2]);
+                                int32_t pdisp = static_cast<int32_t>(bcd[3]);
+                                int32_t vdisp = static_cast<int32_t>(bcd[4]);
+                                int32_t off = 0;
+                                if (pdisp >= 0) {
+                                    uint32_t vbtable = 0;
+                                    cpu->readGuestMemory(completeObj + static_cast<uint32_t>(pdisp), &vbtable, 4);
+                                    int32_t vboff = 0;
+                                    if (vbtable >= 0x10000u) {
+                                        cpu->readGuestMemory(vbtable + static_cast<uint32_t>(vdisp), &vboff, 4);
+                                    }
+                                    off = pdisp + vboff;
+                                }
+                                off += mdisp;
+                                result = completeObj + static_cast<uint32_t>(off);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, result);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!__RTCastToVoid") {
+        uint32_t inptr = 0;
+        cpu->readGuestMemory(esp + 4, &inptr, 4);
+        uint32_t result = 0;
+        if (inptr >= 0x10000u) {
+            uint32_t vftable = 0, pCol = 0;
+            cpu->readGuestMemory(inptr, &vftable, 4);
+            if (vftable >= 0x10004u) cpu->readGuestMemory(vftable - 4, &pCol, 4);
+            if (pCol >= 0x10000u) {
+                uint32_t col[3] = {};
+                cpu->readGuestMemory(pCol, col, sizeof(col));
+                result = inptr - col[1];
+                if (col[2] != 0 && inptr >= col[2] + 4) {
+                    int32_t cdDisp = 0;
+                    cpu->readGuestMemory(inptr - col[2], &cdDisp, 4);
+                    result -= static_cast<uint32_t>(cdDisp);
+                }
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, result);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!__RTtypeid") {
+        uint32_t inptr = 0;
+        cpu->readGuestMemory(esp + 4, &inptr, 4);
+        uint32_t result = 0;
+        if (inptr >= 0x10000u) {
+            uint32_t vftable = 0, pCol = 0;
+            cpu->readGuestMemory(inptr, &vftable, 4);
+            if (vftable >= 0x10004u) cpu->readGuestMemory(vftable - 4, &pCol, 4);
+            if (pCol >= 0x10000u) cpu->readGuestMemory(pCol + 12, &result, 4);
+        }
+        cpu->writeRegister(X86Reg::EAX, result);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
         return true;
     }
