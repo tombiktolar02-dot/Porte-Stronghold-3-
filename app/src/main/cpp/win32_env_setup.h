@@ -46,7 +46,7 @@ struct Win32EnvState {
     uint32_t pebGuestAddr = 0x7FFDE000u;
     uint32_t tlsGuestAddr = 0x7FFDD000u;
     uint32_t stackBase    = 0x00200000u;
-    uint32_t stackSize    = 0x00040000u; // 256 KB aligned stack
+    uint32_t stackSize    = 0x001C0000u; // 1.75 MB aligned stack (0x00040000..0x00200000)
     uint32_t initialESP   = 0x001FFF00u;
 };
 
