@@ -376,7 +376,7 @@ static std::string runStage5BootstrapProbe() {
     bool dllAbort = false;
     {
         const char* initOrder[] = {
-            "msvcp100.dll", "vbase100.dll", "vision100.dll", "pathengine.dll",
+            "msvcp100.dll", "lua100.dll", "vbase100.dll", "vision100.dll", "pathengine.dll",
             "havok.vplugin", "visionengineplugin.vplugin", "strongholdbase.dll", "supahfly.dll"
         };
         std::vector<size_t> order;
@@ -568,7 +568,8 @@ Java_com_bolt_stronghold3wrapper_MainActivity_inspectEngineBinaries(
         {"VisionEnginePlugin.vPlugin", 0x14000000},
         {"Havok.vPlugin",              0x15000000},
         {"PathEngine.dll",             0x16000000},
-        {"msvcp100.dll",               0x17000000}
+        {"msvcp100.dll",               0x17000000},
+        {"lua100.dll",                 0x18000000}
     };
 
     for (const auto& s : specs) {
