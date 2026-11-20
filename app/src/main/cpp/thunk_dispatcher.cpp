@@ -3073,6 +3073,12 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         }
         return out;
     };
+    static alignas(4096) uint8_t s_cFilePage[4096] = {};
+    static bool s_cFilePageMapped = false;
+    if (!s_cFilePageMapped) {
+        cpu->mapGuestMemory(0x6F000000u, 4096u, s_cFilePage);
+        s_cFilePageMapped = true;
+    }
     auto getHostFile = [&](uint32_t handle) -> FILE* {
         if (handle < 0x6F000000u) return nullptr;
         uint32_t idx = (handle - 0x6F000000u) >> 5;
@@ -3098,6 +3104,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
             for (uint32_t i = 1; i < 64; ++i) {
                 if (s_cFiles[i] == nullptr) {
                     s_cFiles[i] = f;
+                    memset(s_cFilePage + (i << 5), 0, 32);
                     guestHandle = 0x6F000000u + (i << 5);
                     break;
                 }
