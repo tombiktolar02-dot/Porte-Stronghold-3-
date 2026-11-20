@@ -599,7 +599,11 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
             }
         }
         uint32_t realBase = findLoadedModule(modName);
-        uint32_t hMod = (realBase != 0u) ? realBase : 0x61000000u;
+        std::string lowMod;
+        lowMod.reserve(modName.size());
+        for (char c : modName) lowMod.push_back((c >= 65 && c <= 90) ? static_cast<char>(c + 32) : c);
+        bool isVPlugin = (lowMod.size() >= 8 && lowMod.compare(lowMod.size() - 8, 8, ".vplugin") == 0);
+        uint32_t hMod = (realBase != 0u) ? realBase : (isVPlugin ? 0u : 0x61000000u);
         cpu->writeRegister(X86Reg::EAX, hMod);
         cpu->writeRegister(X86Reg::ESP, esp + (isEx ? 16u : 8u)); // stdcall
         outNextEip = returnAddr;
@@ -623,7 +627,11 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
             }
         }
         uint32_t realBase = findLoadedModule(modName);
-        uint32_t hMod = (realBase != 0u) ? realBase : 0x61000000u;
+        std::string lowMod;
+        lowMod.reserve(modName.size());
+        for (char c : modName) lowMod.push_back((c >= 65 && c <= 90) ? static_cast<char>(c + 32) : c);
+        bool isVPlugin = (lowMod.size() >= 8 && lowMod.compare(lowMod.size() - 8, 8, ".vplugin") == 0);
+        uint32_t hMod = (realBase != 0u) ? realBase : (isVPlugin ? 0u : 0x61000000u);
         cpu->writeRegister(X86Reg::EAX, hMod);
         cpu->writeRegister(X86Reg::ESP, esp + (isEx ? 16u : 8u)); // stdcall
         outNextEip = returnAddr;
@@ -1514,10 +1522,11 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
     }
 
     if (sym == "kernel32.dll!GetModuleFileNameA") {
-        uint32_t bufPtr = 0, nSize = 0;
+        uint32_t hMod = 0, bufPtr = 0, nSize = 0;
+        cpu->readGuestMemory(esp + 4,  &hMod,   4);
         cpu->readGuestMemory(esp + 8,  &bufPtr, 4);
         cpu->readGuestMemory(esp + 12, &nSize,  4);
-        std::string path = "C:\\Stronghold3\\Stronghold3.exe";
+        std::string path = "C:\\Stronghold3\\" + findModuleNameByBase(hMod);
         uint32_t written = 0;
         if (bufPtr != 0 && nSize > 1) {
             written = (path.size() < nSize - 1) ? static_cast<uint32_t>(path.size()) : (nSize - 1);
@@ -1533,10 +1542,11 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
     }
 
     if (sym == "kernel32.dll!GetModuleFileNameW") {
-        uint32_t bufPtr = 0, nSize = 0;
+        uint32_t hMod = 0, bufPtr = 0, nSize = 0;
+        cpu->readGuestMemory(esp + 4,  &hMod,   4);
         cpu->readGuestMemory(esp + 8,  &bufPtr, 4);
         cpu->readGuestMemory(esp + 12, &nSize,  4);
-        std::string path = "C:\\Stronghold3\\Stronghold3.exe";
+        std::string path = "C:\\Stronghold3\\" + findModuleNameByBase(hMod);
         uint32_t written = 0;
         if (bufPtr != 0 && nSize > 1) {
             written = (path.size() < nSize - 1) ? static_cast<uint32_t>(path.size()) : (nSize - 1);

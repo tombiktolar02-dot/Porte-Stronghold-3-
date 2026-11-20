@@ -19,6 +19,8 @@ public:
         for (size_t i = 0; i < low.size(); ++i) if (low[i] == 47 || low[i] == 92) cut = i + 1;
         if (cut > 0) low = low.substr(cut);
         m_loadedModules[low] = baseAddr;
+        std::string orig = (cut > 0) ? name.substr(cut) : name;
+        m_moduleNamesByBase[baseAddr] = orig;
     }
     uint32_t findLoadedModule(const std::string& rawPath) const {
         std::string low;
@@ -34,6 +36,12 @@ public:
             if (it != m_loadedModules.end()) return it->second;
         }
         return 0u;
+    }
+    std::string findModuleNameByBase(uint32_t base) const {
+        if (base == 0u) return "Stronghold3.exe";
+        auto it = m_moduleNamesByBase.find(base);
+        if (it != m_moduleNamesByBase.end()) return it->second;
+        return "Stronghold3.exe";
     }
     bool isLoadedModuleBase(uint32_t base) const {
         if (base == 0u) return false;
@@ -55,6 +63,7 @@ public:
 private:
     std::unordered_map<uint32_t, std::string> m_reverseMap;
     std::unordered_map<std::string, uint32_t> m_loadedModules;
+    std::unordered_map<uint32_t, std::string> m_moduleNamesByBase;
     std::vector<std::string> m_handledLog;
     uint32_t    m_lastTrappedAddr = 0;
     uint32_t    m_lastReturnAddr  = 0;
