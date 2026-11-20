@@ -127,6 +127,7 @@ public:
         uc_hook_add(m_uc, &m_codeHook, UC_HOOK_CODE, (void*)onCodeStep, this, 1, 0);
         uc_hook_add(m_uc, &m_unmappedHook, UC_HOOK_MEM_UNMAPPED, (void*)onMemUnmapped, this, 1, 0);
         uc_hook_add(m_uc, &m_fetchProtHook, UC_HOOK_MEM_FETCH_PROT, (void*)onMemUnmapped, this, 1, 0);
+        uc_hook_add(m_uc, &m_intrHook, UC_HOOK_INTR, (void*)onIntr, this, 1, 0);
         return true;
     }
 
@@ -210,7 +211,20 @@ public:
         m_faultAddr   = 0;
         m_faultReason.clear();
 
-        uc_err err = uc_emu_start(m_uc, entryPoint, 0, 0, maxInstructions);
+        uint32_t curEip = entryPoint, int3Skips = 0;
+        uc_err err = UC_ERR_OK;
+        while (true) {
+            m_int3Hit = false;
+            uint32_t rem = (maxInstructions > m_steps) ? (maxInstructions - m_steps) : 0u;
+            if (maxInstructions != 0u && rem == 0u) break;
+            err = uc_emu_start(m_uc, curEip, 0, 0, rem);
+            if (m_int3Hit && !m_trapped && !m_faulted && int3Skips < 64u) {
+                ++int3Skips; curEip = readRegister(X86Reg::EIP); err = UC_ERR_OK;
+                if (maxInstructions != 0u && m_steps >= maxInstructions) break;
+                continue;
+            }
+            break;
+        }
 
         uint32_t stopEip = readRegister(X86Reg::EIP);
         res.stepsExecuted = m_steps;
@@ -269,6 +283,20 @@ private:
         }
     }
 
+    static void onIntr(uc_engine* uc, uint32_t intno, void* user_data) {
+        auto* self = reinterpret_cast<UnicornX86CPU*>(user_data);
+        if (intno == 3u) {
+            uint32_t eip = 0; uc_reg_read(uc, UC_X86_REG_EIP, &eip);
+            uint8_t op = 0;
+            if (uc_mem_read(uc, eip, &op, 1) == UC_ERR_OK && op == 0xCCu) {
+                eip += 1u; uc_reg_write(uc, UC_X86_REG_EIP, &eip);
+            }
+            self->m_int3Hit = true;
+            LOGI("Skipped INT 3 (0xCC), resuming at EIP=0x%08X", eip);
+            uc_emu_stop(uc);
+        }
+    }
+
     static void onCodeStep(uc_engine* /*uc*/, uint64_t /*address*/, uint32_t /*size*/, void* user_data) {
         auto* self = reinterpret_cast<UnicornX86CPU*>(user_data);
         self->m_steps++;
@@ -313,6 +341,7 @@ private:
     uc_hook     m_codeHook = 0;
     uc_hook     m_unmappedHook = 0;
     uc_hook     m_fetchProtHook = 0;
+    uc_hook     m_intrHook = 0;
     uint8_t*    m_thunkDataPage = nullptr;
     uint8_t*    m_guestHeapPage = nullptr;
     uint8_t*    m_gdtHostPage = nullptr;
@@ -327,6 +356,7 @@ private:
     uint32_t    m_steps = 0;
     bool        m_trapped = false;
     bool        m_faulted = false;
+    bool        m_int3Hit = false;
     uint32_t    m_trapAddr = 0;
     uint32_t    m_faultAddr = 0;
     std::string m_faultReason;
