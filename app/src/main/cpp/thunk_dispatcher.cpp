@@ -3999,6 +3999,102 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "kernel32.dll!CreateThread") {
+        uint32_t startAddr = 0, param = 0, flags = 0, pTid = 0;
+        cpu->readGuestMemory(esp + 12, &startAddr, 4);
+        cpu->readGuestMemory(esp + 16, &param, 4);
+        cpu->readGuestMemory(esp + 20, &flags, 4);
+        cpu->readGuestMemory(esp + 24, &pTid, 4);
+        (void)startAddr; (void)param; (void)flags;
+        static uint32_t s_threadHandle = 0x57000100u;
+        static uint32_t s_threadId = 2u;
+        uint32_t tid = s_threadId++;
+        uint32_t hThread = s_threadHandle++;
+        if (pTid >= 0x10000u) cpu->writeGuestMemory(pTid, &tid, 4);
+        cpu->writeRegister(X86Reg::EAX, hThread);
+        cpu->writeRegister(X86Reg::ESP, esp + 28); // stdcall (6 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_beginthreadex") {
+        uint32_t pTid = 0;
+        cpu->readGuestMemory(esp + 24, &pTid, 4);
+        static uint32_t s_crtThreadHandle = 0x57100100u;
+        static uint32_t s_crtThreadId = 100u;
+        uint32_t tid = s_crtThreadId++;
+        uint32_t hThread = s_crtThreadHandle++;
+        if (pTid >= 0x10000u) cpu->writeGuestMemory(pTid, &tid, 4);
+        cpu->writeRegister(X86Reg::EAX, hThread);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_beginthread") {
+        static uint32_t s_crtThreadHandle2 = 0x57200100u;
+        cpu->writeRegister(X86Reg::EAX, s_crtThreadHandle2++);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_endthreadex" || sym == "msvcr100.dll!_endthread") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!ResumeThread" || sym == "kernel32.dll!SuspendThread" ||
+        sym == "kernel32.dll!GetThreadPriority") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!SetThreadPriority" || sym == "kernel32.dll!SetThreadAffinityMask" ||
+        sym == "kernel32.dll!TerminateThread") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall (2 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!SetThreadIdealProcessor") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall (2 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!GetExitCodeThread") {
+        uint32_t pCode = 0;
+        cpu->readGuestMemory(esp + 8, &pCode, 4);
+        if (pCode >= 0x10000u) { uint32_t z = 0u; cpu->writeGuestMemory(pCode, &z, 4); }
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall (2 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!SwitchToThread") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4); // stdcall (0 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
     if (sym == "msvcr100.dll!___lc_codepage_func") {
         cpu->writeRegister(X86Reg::EAX, 0u); // C locale
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
