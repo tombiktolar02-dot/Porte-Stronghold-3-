@@ -4380,6 +4380,144 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "msvcr100.dll!getenv") {
+        uint32_t namePtr = 0;
+        cpu->readGuestMemory(esp + 4, &namePtr, 4);
+        std::string varName = (namePtr >= 0x10000u) ? readCStr(namePtr, 128) : "";
+        uint32_t res = 0u;
+        if (varName == "TEMP" || varName == "TMP" || varName == "USERPROFILE" ||
+            varName == "APPDATA" || varName == "LOCALAPPDATA") {
+            static uint32_t s_envPath = 0u;
+            uint8_t chk = 0;
+            if (s_envPath != 0u) cpu->readGuestMemory(s_envPath, &chk, 1);
+            if (s_envPath == 0u || chk != 0x43u) {
+                const char p[] = "C:\\Stronghold3";
+                s_envPath = allocGuest(sizeof(p));
+                if (s_envPath != 0u) cpu->writeGuestMemory(s_envPath, p, sizeof(p));
+            }
+            res = s_envPath;
+        }
+        cpu->writeRegister(X86Reg::EAX, res);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_wgetenv") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!getenv_s") {
+        uint32_t pRet = 0, bufPtr = 0, bufSz = 0;
+        cpu->readGuestMemory(esp + 4,  &pRet,   4);
+        cpu->readGuestMemory(esp + 8,  &bufPtr, 4);
+        cpu->readGuestMemory(esp + 12, &bufSz,  4);
+        if (pRet >= 0x10000u) { uint32_t z = 0u; cpu->writeGuestMemory(pRet, &z, 4); }
+        if (bufPtr >= 0x10000u && bufSz > 0u) { uint8_t nul = 0u; cpu->writeGuestMemory(bufPtr, &nul, 1); }
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_putenv" || sym == "msvcr100.dll!_putenv_s" || sym == "msvcr100.dll!system") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!setlocale") {
+        static uint32_t s_cLoc = 0u;
+        uint8_t chk = 0;
+        if (s_cLoc != 0u) cpu->readGuestMemory(s_cLoc, &chk, 1);
+        if (s_cLoc == 0u || chk != 0x43u) {
+            const char loc[] = "C";
+            s_cLoc = allocGuest(sizeof(loc));
+            if (s_cLoc != 0u) cpu->writeGuestMemory(s_cLoc, loc, sizeof(loc));
+        }
+        cpu->writeRegister(X86Reg::EAX, s_cLoc);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_wsetlocale") {
+        static uint32_t s_wcLoc = 0u;
+        uint16_t chk = 0;
+        if (s_wcLoc != 0u) cpu->readGuestMemory(s_wcLoc, &chk, 2);
+        if (s_wcLoc == 0u || chk != 0x0043u) {
+            const char16_t loc[] = u"C";
+            s_wcLoc = allocGuest(sizeof(loc));
+            if (s_wcLoc != 0u) cpu->writeGuestMemory(s_wcLoc, loc, sizeof(loc));
+        }
+        cpu->writeRegister(X86Reg::EAX, s_wcLoc);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!clock") {
+        static uint64_t s_clockStartMs = 0;
+        struct timespec ts{};
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        uint64_t nowMs = static_cast<uint64_t>(ts.tv_sec) * 1000ULL + static_cast<uint64_t>(ts.tv_nsec / 1000000L);
+        if (s_clockStartMs == 0) s_clockStartMs = nowMs;
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(nowMs - s_clockStartMs));
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!tmpnam") {
+        uint32_t bufPtr = 0;
+        cpu->readGuestMemory(esp + 4, &bufPtr, 4);
+        const char tmpPath[] = "C:\\Stronghold3\\tmp0.tmp";
+        uint32_t dst = bufPtr;
+        if (dst < 0x10000u) {
+            static uint32_t s_tmpBuf = 0u;
+            uint8_t chk = 0;
+            if (s_tmpBuf != 0u) cpu->readGuestMemory(s_tmpBuf, &chk, 1);
+            if (s_tmpBuf == 0u || chk != 0x43u) s_tmpBuf = allocGuest(64);
+            dst = s_tmpBuf;
+        }
+        if (dst >= 0x10000u) cpu->writeGuestMemory(dst, tmpPath, sizeof(tmpPath));
+        cpu->writeRegister(X86Reg::EAX, dst);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!strxfrm") {
+        uint32_t dst = 0, src = 0, n = 0;
+        cpu->readGuestMemory(esp + 4,  &dst, 4);
+        cpu->readGuestMemory(esp + 8,  &src, 4);
+        cpu->readGuestMemory(esp + 12, &n,   4);
+        std::string s = (src >= 0x10000u) ? readCStr(src, 4096) : "";
+        if (dst >= 0x10000u && n > 0u) {
+            uint32_t cp = (s.size() < n - 1u) ? static_cast<uint32_t>(s.size()) : (n - 1u);
+            if (cp > 0u) cpu->writeGuestMemory(dst, s.c_str(), cp);
+            uint8_t nul = 0u;
+            cpu->writeGuestMemory(dst + cp, &nul, 1);
+        }
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(s.size()));
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
     if (sym == "msvcr100.dll!___lc_codepage_func") {
         cpu->writeRegister(X86Reg::EAX, 0u); // C locale
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
