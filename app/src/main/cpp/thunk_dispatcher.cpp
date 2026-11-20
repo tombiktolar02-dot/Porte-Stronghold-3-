@@ -267,6 +267,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return false;
     }
 
+    static bool s_di8IsWide = false;
     if (thunkAddr >= 0x7000B000u && thunkAddr < 0x7000B200u) {
         uint32_t iface = (thunkAddr - 0x7000B000u) >> 8;
         uint32_t slot  = ((thunkAddr - 0x7000B000u) & 0xFFu) >> 2;
@@ -317,7 +318,51 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
                 logSym(sym);
                 return true;
             }
-            if (slot == 4) { // EnumDevices
+            if (slot == 63) { // EnumDevices_Finish
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 4u);
+                outNextEip = returnAddr;
+                return true;
+            }
+            if (slot == 4) { // EnumDevices(this, dwDevType, lpCallback, pvRef, dwFlags)
+                uint32_t devType = 0u, lpCb = 0u, pvRef = 0u;
+                cpu->readGuestMemory(esp + 8,  &devType, 4);
+                cpu->readGuestMemory(esp + 12, &lpCb,    4);
+                cpu->readGuestMemory(esp + 16, &pvRef,   4);
+                bool isMouse = (devType == 0x12u || devType == 2u);
+                bool isKbd   = (devType == 0x13u || devType == 3u);
+                if (lpCb >= 0x10000u && (isMouse || isKbd)) {
+                    uint32_t pDdi = allocGuest(1152u);
+                    if (pDdi != 0u) {
+                        std::vector<uint8_t> ddi(1152u, 0u);
+                        uint32_t sz = s_di8IsWide ? 1100u : 580u;
+                        memcpy(&ddi[0], &sz, 4);
+                        const uint8_t guid[16] = { isMouse ? (uint8_t)0x60 : (uint8_t)0x61, 0x2B, 0x1D, 0x6F, 0xA0, 0xD5, 0xCF, 0x11, 0xBF, 0xC7, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00 };
+                        memcpy(&ddi[4], guid, 16); memcpy(&ddi[20], guid, 16);
+                        uint32_t dt = isMouse ? 0x00000212u : 0x00000413u;
+                        memcpy(&ddi[36], &dt, 4);
+                        const char* nm = isMouse ? "Mouse" : "Keyboard";
+                        if (s_di8IsWide) {
+                            for (size_t i = 0; nm[i]; ++i) { ddi[40 + i*2] = (uint8_t)nm[i]; ddi[560 + i*2] = (uint8_t)nm[i]; }
+                        } else {
+                            memcpy(&ddi[40], nm, strlen(nm)); memcpy(&ddi[300], nm, strlen(nm));
+                        }
+                        uint16_t up = 1u, us = isMouse ? 2u : 6u;
+                        size_t uo = s_di8IsWide ? 1096u : 576u;
+                        memcpy(&ddi[uo], &up, 2); memcpy(&ddi[uo + 2u], &us, 2);
+                        cpu->writeGuestMemory(pDdi, ddi.data(), ddi.size());
+                        uint32_t fin = 0x7000B0FCu;
+                        m_reverseMap[fin] = "IDirectInput8::EnumDevices_Finish";
+                        cpu->writeGuestMemory(esp + 20u, &returnAddr, 4);
+                        cpu->writeGuestMemory(esp + 16u, &pvRef,      4);
+                        cpu->writeGuestMemory(esp + 12u, &pDdi,       4);
+                        cpu->writeGuestMemory(esp + 8u,  &fin,        4);
+                        cpu->writeRegister(X86Reg::ESP, esp + 8u);
+                        outNextEip = lpCb;
+                        logSym(sym);
+                        return true;
+                    }
+                }
                 cpu->writeRegister(X86Reg::EAX, 0u);
                 cpu->writeRegister(X86Reg::ESP, esp + 24u);
                 outNextEip = returnAddr;
@@ -5299,8 +5344,10 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
     }
 
     if (sym == "dinput8.dll!DirectInput8Create" || sym == "dynamic!DirectInput8Create") {
-        uint32_t ppvOut = 0u;
+        uint32_t riid = 0u, ppvOut = 0u;
+        cpu->readGuestMemory(esp + 12, &riid,   4);
         cpu->readGuestMemory(esp + 16, &ppvOut, 4);
+        if (riid >= 0x10000u) { uint32_t d1 = 0u; cpu->readGuestMemory(riid, &d1, 4); s_di8IsWide = (d1 == 0xBF798031u); }
         static uint32_t s_di8Obj = 0u;
         uint32_t existingVt = 0u;
         if (s_di8Obj != 0u) cpu->readGuestMemory(s_di8Obj, &existingVt, 4);
