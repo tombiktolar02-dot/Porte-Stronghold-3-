@@ -43,6 +43,66 @@ public:
         if (it != m_moduleNamesByBase.end()) return it->second;
         return "Stronghold3.exe";
     }
+    uint32_t getOrCreateVirtualModule(const std::string& rawPath) {
+        std::string low;
+        low.reserve(rawPath.size());
+        for (char c : rawPath) low.push_back((c >= 65 && c <= 90) ? static_cast<char>(c + 32) : c);
+        size_t cut = 0;
+        for (size_t i = 0; i < low.size(); ++i) if (low[i] == 47 || low[i] == 92) cut = i + 1;
+        if (cut > 0) low = low.substr(cut);
+        if (low.empty()) return 0x61000000u;
+        if (low.find(46) == std::string::npos) low += ".dll";
+        auto it = m_virtualModsByName.find(low);
+        if (it != m_virtualModsByName.end()) return it->second;
+        uint32_t handle = 0x61000000u + static_cast<uint32_t>(m_virtualModsByName.size()) * 0x10000u;
+        m_virtualModsByName[low] = handle;
+        m_virtualModNamesByBase[handle] = low;
+        return handle;
+    }
+    std::string findVirtualModuleName(uint32_t base) const {
+        auto it = m_virtualModNamesByBase.find(base);
+        if (it != m_virtualModNamesByBase.end()) return it->second;
+        return "";
+    }
+    std::string resolveVirtualDllPrefix(uint32_t hMod, const std::string& fn) const {
+        std::string vm = findVirtualModuleName(hMod);
+        if (!vm.empty()) return vm;
+        if (fn == "Direct3DCreate9" || fn == "Direct3DCreate9Ex") return "d3d9.dll";
+        if (fn == "DirectInput8Create") return "dinput8.dll";
+        if (fn == "GetStockObject" || fn == "GetDeviceCaps" || fn == "DeleteObject" ||
+            fn == "DeleteDC" || fn == "SelectObject" || fn == "CreateCompatibleDC" ||
+            fn == "SetDeviceGammaRamp" || fn == "GetDeviceGammaRamp") return "gdi32.dll";
+        if (fn == "LoadIconA" || fn == "LoadIconW" || fn == "LoadCursorA" || fn == "LoadCursorW" ||
+            fn == "LoadImageA" || fn == "LoadImageW" || fn == "SetCursor" || fn == "ShowCursor" ||
+            fn == "GetCursorPos" || fn == "SetCursorPos" || fn == "ClipCursor" ||
+            fn == "RegisterClassA" || fn == "RegisterClassW" || fn == "RegisterClassExA" || fn == "RegisterClassExW" ||
+            fn == "UnregisterClassA" || fn == "UnregisterClassW" || fn == "GetClassInfoA" || fn == "GetClassInfoW" ||
+            fn == "GetClassInfoExA" || fn == "GetClassInfoExW" || fn == "CreateWindowExA" || fn == "CreateWindowExW" ||
+            fn == "DestroyWindow" || fn == "ShowWindow" || fn == "UpdateWindow" || fn == "SetForegroundWindow" ||
+            fn == "BringWindowToTop" || fn == "IsWindow" || fn == "IsWindowVisible" || fn == "IsWindowEnabled" ||
+            fn == "IsIconic" || fn == "IsZoomed" || fn == "SetFocus" || fn == "SetActiveWindow" ||
+            fn == "GetForegroundWindow" || fn == "GetActiveWindow" || fn == "GetFocus" || fn == "GetDesktopWindow" ||
+            fn == "SetCapture" || fn == "GetCapture" || fn == "ReleaseCapture" ||
+            fn == "SetWindowTextA" || fn == "SetWindowTextW" || fn == "GetWindowTextA" || fn == "GetWindowTextW" ||
+            fn == "AdjustWindowRect" || fn == "AdjustWindowRectEx" || fn == "InvalidateRect" || fn == "ValidateRect" ||
+            fn == "GetClientRect" || fn == "GetWindowRect" || fn == "SetWindowPos" || fn == "MoveWindow" ||
+            fn == "ClientToScreen" || fn == "ScreenToClient" || fn == "GetSystemMetrics" ||
+            fn == "SystemParametersInfoA" || fn == "SystemParametersInfoW" ||
+            fn == "MonitorFromWindow" || fn == "MonitorFromRect" || fn == "MonitorFromPoint" ||
+            fn == "GetMonitorInfoA" || fn == "GetMonitorInfoW" ||
+            fn == "ChangeDisplaySettingsA" || fn == "ChangeDisplaySettingsW" ||
+            fn == "ChangeDisplaySettingsExA" || fn == "ChangeDisplaySettingsExW" ||
+            fn == "EnumDisplayDevicesA" || fn == "EnumDisplayDevicesW" || fn == "EnumDisplayMonitors" ||
+            fn == "EnumDisplaySettingsA" || fn == "EnumDisplaySettingsW" ||
+            fn == "GetWindowLongA" || fn == "GetWindowLongW" || fn == "SetWindowLongA" || fn == "SetWindowLongW" ||
+            fn == "PeekMessageA" || fn == "PeekMessageW" || fn == "TranslateMessage" ||
+            fn == "DispatchMessageA" || fn == "DispatchMessageW" || fn == "PostQuitMessage" ||
+            fn == "DefWindowProcA" || fn == "DefWindowProcW" || fn == "SendMessageA" || fn == "SendMessageW" ||
+            fn == "PostMessageA" || fn == "PostMessageW" || fn == "SetTimer" || fn == "KillTimer" ||
+            fn == "EnableWindow" || fn == "GetWindowThreadProcessId" || fn == "GetDC" || fn == "ReleaseDC" ||
+            fn == "MessageBoxA" || fn == "MessageBoxW" || fn == "FindWindowA" || fn == "FindWindowW") return "user32.dll";
+        return "dynamic";
+    }
     bool isLoadedModuleBase(uint32_t base) const {
         if (base == 0u) return false;
         for (const auto& kv : m_loadedModules) if (kv.second == base) return true;
@@ -66,6 +126,8 @@ private:
     std::unordered_map<std::string, uint32_t> m_loadedModules;
     std::unordered_map<uint32_t, std::string> m_moduleNamesByBase;
     std::unordered_map<int32_t, uint32_t> m_winLongs;
+    std::unordered_map<std::string, uint32_t> m_virtualModsByName;
+    std::unordered_map<uint32_t, std::string> m_virtualModNamesByBase;
     std::vector<std::string> m_handledLog;
     uint32_t    m_lastTrappedAddr = 0;
     uint32_t    m_lastReturnAddr  = 0;
@@ -86,7 +148,7 @@ private:
     std::string m_lastCmp;
 
     void logSym(const std::string& s) {
-        if (m_postD3dActive && m_d3dTrace.size() < 320u) {
+        if (m_postD3dActive && m_d3dTrace.size() < 512u) {
             if (s.find("!malloc") == std::string::npos && s.find("!free") == std::string::npos &&
                 s.find("!realloc") == std::string::npos && s.find("!calloc") == std::string::npos &&
                 s.find("!??") == std::string::npos && s.find("CriticalSection") == std::string::npos &&

@@ -814,6 +814,17 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
                 }
             }
             hMod = findLoadedModule(modName);
+            if (hMod == 0u) {
+                std::string lowM;
+                for (char c : modName) lowM.push_back((c >= 65 && c <= 90) ? static_cast<char>(c + 32) : c);
+                if (lowM == "user32" || lowM == "user32.dll" || lowM == "gdi32" || lowM == "gdi32.dll" ||
+                    lowM == "d3d9" || lowM == "d3d9.dll" || lowM == "dinput8" || lowM == "dinput8.dll") {
+                    hMod = getOrCreateVirtualModule(lowM);
+                } else {
+                    auto vit = m_virtualModsByName.find(lowM);
+                    if (vit != m_virtualModsByName.end()) hMod = vit->second;
+                }
+            }
         }
         cpu->writeRegister(X86Reg::EAX, hMod);
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
@@ -978,7 +989,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         lowMod.reserve(modName.size());
         for (char c : modName) lowMod.push_back((c >= 65 && c <= 90) ? static_cast<char>(c + 32) : c);
         bool isVPlugin = (lowMod.size() >= 8 && lowMod.compare(lowMod.size() - 8, 8, ".vplugin") == 0);
-        uint32_t hMod = (realBase != 0u) ? realBase : (isVPlugin ? 0u : 0x61000000u);
+        uint32_t hMod = (realBase != 0u) ? realBase : (isVPlugin ? 0u : getOrCreateVirtualModule(modName));
         cpu->writeRegister(X86Reg::EAX, hMod);
         cpu->writeRegister(X86Reg::ESP, esp + (isEx ? 16u : 8u)); // stdcall
         outNextEip = returnAddr;
@@ -1007,7 +1018,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         lowMod.reserve(modName.size());
         for (char c : modName) lowMod.push_back((c >= 65 && c <= 90) ? static_cast<char>(c + 32) : c);
         bool isVPlugin = (lowMod.size() >= 8 && lowMod.compare(lowMod.size() - 8, 8, ".vplugin") == 0);
-        uint32_t hMod = (realBase != 0u) ? realBase : (isVPlugin ? 0u : 0x61000000u);
+        uint32_t hMod = (realBase != 0u) ? realBase : (isVPlugin ? 0u : getOrCreateVirtualModule(modName));
         cpu->writeRegister(X86Reg::EAX, hMod);
         cpu->writeRegister(X86Reg::ESP, esp + (isEx ? 16u : 8u)); // stdcall
         outNextEip = returnAddr;
@@ -1250,7 +1261,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
             if (resolvedAddr == 0u && m_dynThunkCursor < 0x7000E000u) {
                 resolvedAddr = m_dynThunkCursor;
                 m_dynThunkCursor += 0x10u;
-                m_reverseMap[resolvedAddr] = "dynamic!" + rawName;
+                m_reverseMap[resolvedAddr] = resolveVirtualDllPrefix(hMod, rawName) + "!" + rawName;
             }
         }
         cpu->writeRegister(X86Reg::EAX, resolvedAddr);
