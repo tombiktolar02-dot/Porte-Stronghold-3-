@@ -43,6 +43,7 @@ private:
     std::string m_lastCmp;
 
     void logSym(const std::string& s) {
+        if (m_handledLog.size() >= 4096) return;
         if (s.find("!malloc") != std::string::npos || s.find("!calloc") != std::string::npos ||
             s.find("!realloc") != std::string::npos || s.find("!free") != std::string::npos ||
             s.find("!??") != std::string::npos || s.find("!str") != std::string::npos ||

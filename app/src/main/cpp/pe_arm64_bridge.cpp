@@ -431,14 +431,13 @@ static std::string runStage5BootstrapProbe() {
     auto loopStart = std::chrono::steady_clock::now();
     uint32_t hleExecCount = 0;
     uint32_t lastHleAddr = 0, lastHleRet = 0;
-    std::string lastHleSym;
     if (!dllAbort)
     for (int iter = 0; iter < 20000000 && totalSteps < maxTotalSteps; ++iter) {
-        if ((iter & 255) == 255) {
+        if ((iter & 4095) == 4095) {
             auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - loopStart).count();
-            if (elapsedMs >= 90000) {
-                stepRes.reason = "WATCHDOG_TIMEOUT_90S";
+            if (elapsedMs >= 180000) {
+                stepRes.reason = "WATCHDOG_TIMEOUT_180S";
                 stepRes.haltedOnThunk = false;
                 stepRes.stopAddress = currentEip;
                 break;
@@ -451,7 +450,6 @@ static std::string runStage5BootstrapProbe() {
         if (stepRes.haltedOnThunk) {
             lastHleAddr = dispatcher.lastTrappedAddress();
             lastHleRet = dispatcher.lastReturnAddress();
-            lastHleSym = dispatcher.lastTrappedSymbol();
             uint32_t nextEip = 0;
             if (dispatcher.handleThunkCall(cpu.get(), lastHleAddr, lastHleRet, nextEip)) {
                 ++hleExecCount;
@@ -464,8 +462,8 @@ static std::string runStage5BootstrapProbe() {
             currentEip = cpu->readRegister(X86Reg::EIP);
             auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - loopStart).count();
-            if (elapsedMs >= 90000) {
-                stepRes.reason = "WATCHDOG_TIMEOUT_90S";
+            if (elapsedMs >= 180000) {
+                stepRes.reason = "WATCHDOG_TIMEOUT_180S";
                 stepRes.stopAddress = currentEip;
                 break;
             }
@@ -483,10 +481,10 @@ static std::string runStage5BootstrapProbe() {
     if (!dispatcher.lastMsgBox().empty()) {
         out << "[LAST MSGBOX] " << dispatcher.lastMsgBox() << "\n";
     }
-    if (stepRes.reason == "WATCHDOG_TIMEOUT_90S") {
+    if (stepRes.reason == "WATCHDOG_TIMEOUT_180S") {
         snprintf(sbuf, sizeof(sbuf),
                  "[WATCHDOG] RealHLE=%u | LastHLE=0x%08X (%s) | LastRet=0x%08X | EAX=0x%08X ESP=0x%08X\n",
-                 hleExecCount, lastHleAddr, lastHleSym.c_str(), lastHleRet,
+                 hleExecCount, lastHleAddr, dispatcher.lastTrappedSymbol().c_str(), lastHleRet,
                  cpu->readRegister(X86Reg::EAX), cpu->readRegister(X86Reg::ESP));
         out << sbuf;
     }
