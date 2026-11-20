@@ -65,6 +65,7 @@ private:
     std::unordered_map<uint32_t, std::string> m_reverseMap;
     std::unordered_map<std::string, uint32_t> m_loadedModules;
     std::unordered_map<uint32_t, std::string> m_moduleNamesByBase;
+    std::unordered_map<int32_t, uint32_t> m_winLongs;
     std::vector<std::string> m_handledLog;
     uint32_t    m_lastTrappedAddr = 0;
     uint32_t    m_lastReturnAddr  = 0;

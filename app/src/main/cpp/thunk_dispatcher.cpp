@@ -38,7 +38,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
 
     if (thunkAddr >= 0x7000C000u && thunkAddr < 0x7000C100u) {
         uint32_t slot = (thunkAddr - 0x7000C000u) >> 2;
-        if (m_d3dTrace.size() < 200u) m_d3dTrace += "S" + std::to_string(slot) + " ";
+        if (m_d3dTrace.size() < 512u) m_d3dTrace += "S" + std::to_string(slot) + " ";
         if (slot == 0) { // IDirect3D9::QueryInterface
             uint32_t thisPtr = 0u, ppv = 0u;
             cpu->readGuestMemory(esp + 4,  &thisPtr, 4);
@@ -5354,6 +5354,456 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
     if (sym == "ws2_32.dll!#112" || sym == "ws2_32.dll!WSASetLastError") {
         cpu->writeRegister(X86Reg::EAX, 0u);
         cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!LoadIconA" || sym == "user32.dll!LoadIconW" ||
+        sym == "user32.dll!LoadCursorA" || sym == "user32.dll!LoadCursorW") {
+        uint32_t h = (sym.find("Cursor") != std::string::npos) ? 0x00030001u : 0x00020001u;
+        cpu->writeRegister(X86Reg::EAX, h);
+        cpu->writeRegister(X86Reg::ESP, esp + 12u); // stdcall (2 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!LoadImageA" || sym == "user32.dll!LoadImageW") {
+        cpu->writeRegister(X86Reg::EAX, 0x00020002u);
+        cpu->writeRegister(X86Reg::ESP, esp + 28u); // stdcall (6 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!SetCursor") {
+        cpu->writeRegister(X86Reg::EAX, 0x00030001u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!ShowCursor") {
+        static int32_t s_curVis = 0;
+        uint32_t bShow = 0u;
+        cpu->readGuestMemory(esp + 4, &bShow, 4);
+        s_curVis += (bShow != 0u) ? 1 : -1;
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(s_curVis));
+        cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!GetCursorPos") {
+        uint32_t lpPt = 0u;
+        cpu->readGuestMemory(esp + 4, &lpPt, 4);
+        if (lpPt >= 0x10000u) { int32_t pt[2] = { 640, 360 }; cpu->writeGuestMemory(lpPt, pt, 8); }
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!SetCursorPos" || sym == "user32.dll!UnregisterClassA" ||
+        sym == "user32.dll!UnregisterClassW" || sym == "user32.dll!ShowWindow" ||
+        sym == "user32.dll!SetWindowTextA" || sym == "user32.dll!SetWindowTextW" ||
+        sym == "user32.dll!ClientToScreen" || sym == "user32.dll!ScreenToClient" ||
+        sym == "user32.dll!ReleaseDC" || sym == "user32.dll!ValidateRect" ||
+        sym == "user32.dll!KillTimer" || sym == "user32.dll!EnableWindow") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12u); // stdcall (2 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!RegisterClassA" || sym == "user32.dll!RegisterClassW" ||
+        sym == "user32.dll!RegisterClassExA" || sym == "user32.dll!RegisterClassExW") {
+        cpu->writeRegister(X86Reg::EAX, 0xC001u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!GetClassInfoA" || sym == "user32.dll!GetClassInfoW" ||
+        sym == "user32.dll!GetClassInfoExA" || sym == "user32.dll!GetClassInfoExW") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 16u); // stdcall (3 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!CreateWindowExA" || sym == "user32.dll!CreateWindowExW") {
+        uint32_t dwStyle = 0u, dwExStyle = 0u;
+        cpu->readGuestMemory(esp + 4,  &dwExStyle, 4);
+        cpu->readGuestMemory(esp + 16, &dwStyle,   4);
+        m_winLongs[-16] = dwStyle;   // GWL_STYLE
+        m_winLongs[-20] = dwExStyle; // GWL_EXSTYLE
+        cpu->writeRegister(X86Reg::EAX, 0x000A0001u); // fake HWND
+        cpu->writeRegister(X86Reg::ESP, esp + 52u); // stdcall (12 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!DestroyWindow" || sym == "user32.dll!ClipCursor" ||
+        sym == "user32.dll!UpdateWindow" || sym == "user32.dll!SetForegroundWindow" ||
+        sym == "user32.dll!BringWindowToTop") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!IsWindow" || sym == "user32.dll!IsWindowVisible" ||
+        sym == "user32.dll!IsWindowEnabled") {
+        uint32_t hwnd = 0u;
+        cpu->readGuestMemory(esp + 4, &hwnd, 4);
+        cpu->writeRegister(X86Reg::EAX, (hwnd != 0u) ? 1u : 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!IsIconic" || sym == "user32.dll!IsZoomed" ||
+        sym == "user32.dll!SetCapture" || sym == "user32.dll!TranslateMessage" ||
+        sym == "user32.dll!DispatchMessageA" || sym == "user32.dll!DispatchMessageW" ||
+        sym == "user32.dll!PostQuitMessage") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!SetFocus" || sym == "user32.dll!SetActiveWindow") {
+        cpu->writeRegister(X86Reg::EAX, 0x000A0001u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!GetForegroundWindow" || sym == "user32.dll!GetActiveWindow" ||
+        sym == "user32.dll!GetFocus" || sym == "user32.dll!GetDesktopWindow" ||
+        sym == "user32.dll!GetCapture" || sym == "user32.dll!ReleaseCapture") {
+        uint32_t res = 0x000A0001u;
+        if (sym == "user32.dll!GetDesktopWindow") res = 0x00010010u;
+        else if (sym == "user32.dll!GetCapture") res = 0u;
+        else if (sym == "user32.dll!ReleaseCapture") res = 1u;
+        cpu->writeRegister(X86Reg::EAX, res);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // stdcall (0 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!GetWindowTextA" || sym == "user32.dll!GetWindowTextW") {
+        bool isW = (sym.back() == 87);
+        uint32_t bufPtr = 0u, maxCnt = 0u;
+        cpu->readGuestMemory(esp + 8,  &bufPtr, 4);
+        cpu->readGuestMemory(esp + 12, &maxCnt, 4);
+        uint32_t len = 0u;
+        if (bufPtr >= 0x10000u && maxCnt > 1u) {
+            const char title[] = "Stronghold 3";
+            len = (12u < maxCnt - 1u) ? 12u : (maxCnt - 1u);
+            if (isW) {
+                std::vector<uint16_t> w(len + 1u, 0u);
+                for (uint32_t i = 0; i < len; ++i) w[i] = static_cast<uint16_t>(title[i]);
+                cpu->writeGuestMemory(bufPtr, w.data(), (len + 1u) * 2u);
+            } else {
+                cpu->writeGuestMemory(bufPtr, title, len);
+                uint8_t nul = 0u; cpu->writeGuestMemory(bufPtr + len, &nul, 1);
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, len);
+        cpu->writeRegister(X86Reg::ESP, esp + 16u); // stdcall (3 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!AdjustWindowRect" || sym == "user32.dll!InvalidateRect") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 16u); // stdcall (3 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!AdjustWindowRectEx") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 20u); // stdcall (4 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!GetClientRect" || sym == "user32.dll!GetWindowRect") {
+        uint32_t pRect = 0u;
+        cpu->readGuestMemory(esp + 8, &pRect, 4);
+        if (pRect >= 0x10000u) {
+            int32_t rc[4] = { 0, 0, 1280, 720 };
+            cpu->writeGuestMemory(pRect, rc, sizeof(rc));
+        }
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12u); // stdcall (2 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!SetWindowPos") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 32u); // stdcall (7 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!MoveWindow") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 28u); // stdcall (6 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!GetSystemMetrics") {
+        int32_t idx = 0;
+        cpu->readGuestMemory(esp + 4, &idx, 4);
+        int32_t val = 0;
+        if (idx == 0 || idx == 16 || idx == 78) val = 1280;
+        else if (idx == 1 || idx == 17 || idx == 79) val = 720;
+        else if (idx == 80 || idx == 19) val = 1;
+        else if (idx == 43) val = 3;
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(val));
+        cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!SystemParametersInfoA" || sym == "user32.dll!SystemParametersInfoW") {
+        uint32_t uiAct = 0u, pvParam = 0u;
+        cpu->readGuestMemory(esp + 4,  &uiAct,   4);
+        cpu->readGuestMemory(esp + 12, &pvParam, 4);
+        if (uiAct == 48u && pvParam >= 0x10000u) { // SPI_GETWORKAREA
+            int32_t rc[4] = { 0, 0, 1280, 720 };
+            cpu->writeGuestMemory(pvParam, rc, sizeof(rc));
+        }
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 20u); // stdcall (4 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!MonitorFromWindow" || sym == "user32.dll!MonitorFromRect") {
+        cpu->writeRegister(X86Reg::EAX, 0x00010001u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12u); // stdcall (2 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!MonitorFromPoint") {
+        cpu->writeRegister(X86Reg::EAX, 0x00010001u);
+        cpu->writeRegister(X86Reg::ESP, esp + 16u); // stdcall (POINT=2 DWORDs + dwFlags)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!GetMonitorInfoA" || sym == "user32.dll!GetMonitorInfoW") {
+        bool isW = (sym.back() == 87);
+        uint32_t lpmi = 0u;
+        cpu->readGuestMemory(esp + 8, &lpmi, 4);
+        if (lpmi >= 0x10000u) {
+            uint32_t cb = 0u;
+            cpu->readGuestMemory(lpmi, &cb, 4);
+            int32_t rc[4] = { 0, 0, 1280, 720 };
+            uint32_t flags = 1u;
+            cpu->writeGuestMemory(lpmi + 4,  rc, sizeof(rc));
+            cpu->writeGuestMemory(lpmi + 20, rc, sizeof(rc));
+            cpu->writeGuestMemory(lpmi + 36, &flags, 4);
+            if (!isW && cb >= 72u) { const char d[] = "\\\\.\\DISPLAY1"; cpu->writeGuestMemory(lpmi + 40, d, sizeof(d)); }
+            else if (isW && cb >= 104u) { const char16_t d[] = u"\\\\.\\DISPLAY1"; cpu->writeGuestMemory(lpmi + 40, d, sizeof(d)); }
+        }
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12u); // stdcall (2 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!ChangeDisplaySettingsA" || sym == "user32.dll!ChangeDisplaySettingsW") {
+        cpu->writeRegister(X86Reg::EAX, 0u); // DISP_CHANGE_SUCCESSFUL
+        cpu->writeRegister(X86Reg::ESP, esp + 12u); // stdcall (2 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!ChangeDisplaySettingsExA" || sym == "user32.dll!ChangeDisplaySettingsExW") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 24u); // stdcall (5 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!EnumDisplaySettingsW" || sym == "dynamic!EnumDisplaySettingsW") {
+        uint32_t iModeNum = 0u, lpDevMode = 0u;
+        cpu->readGuestMemory(esp + 8,  &iModeNum,  4);
+        cpu->readGuestMemory(esp + 12, &lpDevMode, 4);
+        uint32_t retVal = 0u;
+        if (iModeNum == 0u || iModeNum == 0xFFFFFFFFu || iModeNum == 0xFFFFFFFEu) {
+            if (lpDevMode >= 0x10000u) {
+                uint32_t dmFields = 0x005C0000u, bpp = 32u, w = 1280u, h = 720u, flags = 0u, freq = 60u;
+                cpu->writeGuestMemory(lpDevMode + 72,  &dmFields, 4);
+                cpu->writeGuestMemory(lpDevMode + 168, &bpp,      4);
+                cpu->writeGuestMemory(lpDevMode + 172, &w,        4);
+                cpu->writeGuestMemory(lpDevMode + 176, &h,        4);
+                cpu->writeGuestMemory(lpDevMode + 180, &flags,    4);
+                cpu->writeGuestMemory(lpDevMode + 184, &freq,     4);
+            }
+            retVal = 1u;
+        }
+        cpu->writeRegister(X86Reg::EAX, retVal);
+        cpu->writeRegister(X86Reg::ESP, esp + 16u); // stdcall (3 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!GetWindowLongA" || sym == "user32.dll!GetWindowLongW") {
+        int32_t idx = 0;
+        cpu->readGuestMemory(esp + 8, &idx, 4);
+        uint32_t val = 0u;
+        auto it = m_winLongs.find(idx);
+        if (it != m_winLongs.end()) val = it->second;
+        else if (idx == -16) val = 0x10CF0000u;
+        cpu->writeRegister(X86Reg::EAX, val);
+        cpu->writeRegister(X86Reg::ESP, esp + 12u); // stdcall (2 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!SetWindowLongA" || sym == "user32.dll!SetWindowLongW") {
+        int32_t idx = 0; uint32_t newVal = 0u;
+        cpu->readGuestMemory(esp + 8,  &idx,    4);
+        cpu->readGuestMemory(esp + 12, &newVal, 4);
+        uint32_t oldVal = m_winLongs[idx];
+        m_winLongs[idx] = newVal;
+        cpu->writeRegister(X86Reg::EAX, oldVal);
+        cpu->writeRegister(X86Reg::ESP, esp + 16u); // stdcall (3 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!PeekMessageA" || sym == "user32.dll!PeekMessageW") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 24u); // stdcall (5 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!DefWindowProcA" || sym == "user32.dll!DefWindowProcW" ||
+        sym == "user32.dll!SendMessageA" || sym == "user32.dll!SendMessageW" ||
+        sym == "user32.dll!PostMessageA" || sym == "user32.dll!PostMessageW" ||
+        sym == "user32.dll!SetTimer") {
+        uint32_t res = (sym.find("PostMessage") != std::string::npos || sym == "user32.dll!SetTimer") ? 1u : 0u;
+        cpu->writeRegister(X86Reg::EAX, res);
+        cpu->writeRegister(X86Reg::ESP, esp + 20u); // stdcall (4 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!GetWindowThreadProcessId") {
+        uint32_t pPid = 0u;
+        cpu->readGuestMemory(esp + 8, &pPid, 4);
+        if (pPid >= 0x10000u) { uint32_t pid = 0x1234u; cpu->writeGuestMemory(pPid, &pid, 4); }
+        cpu->writeRegister(X86Reg::EAX, 0x1234u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12u); // stdcall (2 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!GetDC" || sym == "gdi32.dll!CreateCompatibleDC") {
+        cpu->writeRegister(X86Reg::EAX, (sym == "user32.dll!GetDC") ? 0x000D0001u : 0x000D0002u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "gdi32.dll!GetStockObject") {
+        cpu->writeRegister(X86Reg::EAX, 0x00050001u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "gdi32.dll!DeleteObject" || sym == "gdi32.dll!DeleteDC") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "gdi32.dll!SelectObject") {
+        cpu->writeRegister(X86Reg::EAX, 0x00050001u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12u); // stdcall (2 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "gdi32.dll!GetDeviceCaps") {
+        int32_t idx = 0;
+        cpu->readGuestMemory(esp + 8, &idx, 4);
+        int32_t val = 0;
+        if (idx == 8) val = 1280; else if (idx == 10) val = 720;
+        else if (idx == 12) val = 32; else if (idx == 14) val = 1;
+        else if (idx == 88 || idx == 90) val = 96; else if (idx == 116) val = 60;
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(val));
+        cpu->writeRegister(X86Reg::ESP, esp + 12u); // stdcall (2 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "gdi32.dll!SetDeviceGammaRamp" || sym == "gdi32.dll!GetDeviceGammaRamp") {
+        if (sym == "gdi32.dll!GetDeviceGammaRamp") {
+            uint32_t pRamp = 0u;
+            cpu->readGuestMemory(esp + 8, &pRamp, 4);
+            if (pRamp >= 0x10000u) {
+                std::vector<uint16_t> ramp(768, 0u);
+                for (uint32_t i = 0; i < 256u; ++i) {
+                    uint16_t v = static_cast<uint16_t>(i << 8);
+                    ramp[i] = v; ramp[256 + i] = v; ramp[512 + i] = v;
+                }
+                cpu->writeGuestMemory(pRamp, ramp.data(), ramp.size() * 2u);
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12u); // stdcall (2 args)
         outNextEip = returnAddr;
         logSym(sym);
         return true;
