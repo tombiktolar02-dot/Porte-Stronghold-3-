@@ -3073,7 +3073,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         }
         return out;
     };
-    static alignas(4096) uint8_t s_cFilePage[4096] = {};
+    alignas(4096) static uint8_t s_cFilePage[4096] = {};
     static bool s_cFilePageMapped = false;
     if (!s_cFilePageMapped) {
         cpu->mapGuestMemory(0x6F000000u, 4096u, s_cFilePage);
