@@ -487,6 +487,7 @@ static std::string runStage5BootstrapProbe() {
     if (!dispatcher.d3dTrace().empty()) {
         out << "[D3D9 TRACE] " << dispatcher.d3dTrace() << "\n";
     }
+    if (!dispatcher.d3d9BridgeStatus().empty()) { out << "[DXVK BRIDGE] " << dispatcher.d3d9BridgeStatus() << "\n"; }
     if (!dispatcher.lastMsgBox().empty()) {
         out << "[LAST MSGBOX] " << dispatcher.lastMsgBox() << "\n";
     }

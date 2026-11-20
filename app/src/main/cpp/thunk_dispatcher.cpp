@@ -37,6 +37,10 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
     std::string sym = resolveAddress(thunkAddr);
     uint32_t esp = cpu->readRegister(X86Reg::ESP);
 
+    if (thunkAddr >= 0x7000C000u && thunkAddr < 0x7000CE00u) {
+        if (m_d3dTrace.size() < 512u) { if (thunkAddr < 0x7000C100u) m_d3dTrace += "S" + std::to_string((thunkAddr-0x7000C000u)>>2) + " "; else if (thunkAddr < 0x7000C300u) m_d3dTrace += "D" + std::to_string((thunkAddr-0x7000C100u)>>2) + " "; }
+        if (m_d3d9Bridge.handleVtableThunk(thunkAddr,cpu,esp,returnAddr,outNextEip,[this](uint32_t s){return allocGuest(s);},[this](uint32_t a,const std::string& n){m_reverseMap[a]=n;})) { logSym(sym); return true; }
+        return false; }
     if (thunkAddr >= 0x7000C000u && thunkAddr < 0x7000C100u) {
         uint32_t slot = (thunkAddr - 0x7000C000u) >> 2;
         if (m_d3dTrace.size() < 512u) m_d3dTrace += "S" + std::to_string(slot) + " ";
@@ -5306,6 +5310,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "d3d9.dll!Direct3DCreate9" || sym == "dynamic!Direct3DCreate9") { if (m_d3dTrace.size()<512u) m_d3dTrace+="Create9 "; m_postD3dActive=true; if (m_d3d9Bridge.handleDirect3DCreate9(cpu,esp,returnAddr,outNextEip,[this](uint32_t s){return allocGuest(s);},[this](uint32_t a,const std::string& n){m_reverseMap[a]=n;})) { logSym(sym); return true; } }
     if (sym == "d3d9.dll!Direct3DCreate9" || sym == "dynamic!Direct3DCreate9") {
         if (m_d3dTrace.size() < 200u) m_d3dTrace += "Create9 ";
         m_postD3dActive = true;

@@ -8,6 +8,8 @@
 #include <unordered_map>
 #include "i_x86_cpu.h"
 
+#include "d3d9_guest_bridge.h"
+
 class ThunkDispatcher {
 public:
     void buildReverseMap(const std::unordered_map<std::string, uint32_t>& forwardThunkTable);
@@ -118,6 +120,7 @@ public:
     uint32_t lastReturnAddress() const { return m_lastReturnAddr; }
     const std::string& lastMsgBox() const { return m_lastMsgBox; }
     const std::string& d3dTrace() const { return m_d3dTrace; }
+    std::string d3d9BridgeStatus() const { return m_d3d9Bridge.statusSummary(); }
     const std::string& lastTrappedSymbol() const { return m_lastTrappedSym; }
     const std::vector<std::string>& handledLog() const { return m_handledLog; }
 
@@ -144,6 +147,7 @@ private:
 
     std::string m_lastMsgBox;
     std::string m_d3dTrace;
+    D3D9GuestBridge m_d3d9Bridge;
     bool m_postD3dActive = false;
     std::string m_lastCmp;
 
@@ -163,7 +167,7 @@ private:
                 s.find("!ftell") == std::string::npos && s.find("!feof") == std::string::npos &&
                 s.find("!ferror") == std::string::npos && s.find("printf") == std::string::npos &&
                 s.find("!qsort") == std::string::npos && s.find("!bsearch") == std::string::npos &&
-                s.find("!rand") == std::string::npos && s.find("!_CI") == std::string::npos && s.find("!_ftol") == std::string::npos && s.find("IDirect3D9::") == std::string::npos) {
+                s.find("!rand") == std::string::npos && s.find("!_CI") == std::string::npos && s.find("!_ftol") == std::string::npos && s.find("IDirect3D") == std::string::npos) {
                 size_t bang = s.find(33);
                 std::string sh = (bang != std::string::npos) ? s.substr(bang + 1) : s;
                 m_d3dTrace += sh + " ";

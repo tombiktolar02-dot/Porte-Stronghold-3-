@@ -26,6 +26,7 @@ set(STAGE5_SOURCES
     win32_env_setup.cpp
     thunk_dispatcher.cpp
     dxvk_backend_probe.cpp
+    d3d9_guest_bridge.cpp
 )
 
 if(SH3_X86_BACKEND STREQUAL "UNICORN" AND EXISTS "${UNICORN_LIB_PATH}")
