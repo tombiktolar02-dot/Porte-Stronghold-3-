@@ -30,6 +30,10 @@ public:
             munmap(m_gdtHostPage, 4096);
             m_gdtHostPage = nullptr;
         }
+        if (m_fpuHelperPage) {
+            munmap(m_fpuHelperPage, 4096);
+            m_fpuHelperPage = nullptr;
+        }
         if (m_thunkDataPage) {
             munmap(m_thunkDataPage, 65536);
             m_thunkDataPage = nullptr;
@@ -73,6 +77,24 @@ public:
         }
 
         setupGdtAndSegments(0x7FFDF000u);
+        if (!m_fpuHelperPage) {
+            m_fpuHelperPage = (uint8_t*)mmap(nullptr, 4096, PROT_READ | PROT_WRITE,
+                                             MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            if (m_fpuHelperPage == MAP_FAILED) {
+                m_fpuHelperPage = nullptr;
+                return false;
+            }
+        }
+        memset(m_fpuHelperPage, 0, 4096);
+        const uint8_t fstpOp[6] = { 0xDD, 0x1D, 0x00, 0xB1, 0xFD, 0x7F }; // fstp qword ptr [0x7FFDB100]
+        const uint8_t fldOp[6]  = { 0xDD, 0x05, 0x00, 0xB1, 0xFD, 0x7F }; // fld  qword ptr [0x7FFDB100]
+        memcpy(m_fpuHelperPage + 0x00, fstpOp, 6);
+        memcpy(m_fpuHelperPage + 0x10, fldOp,  6);
+        err = uc_mem_map_ptr(m_uc, m_fpuHelperGuestAddr, 4096, UC_PROT_ALL, m_fpuHelperPage);
+        if (err != UC_ERR_OK) {
+            LOGE("FPU helper map failed: %s", uc_strerror(err));
+            return false;
+        }
 
         if (!m_thunkDataPage) {
             m_thunkDataPage = (uint8_t*)mmap(nullptr, 65536, PROT_READ | PROT_WRITE,
@@ -146,6 +168,25 @@ public:
         int ucReg = toUcReg(reg);
         if (ucReg >= 0) uc_reg_read(m_uc, ucReg, &val);
         return val;
+    }
+
+    double popFpuDouble() override {
+        if (!m_uc || !m_fpuHelperPage) return 0.0;
+        uint32_t savedEip = readRegister(X86Reg::EIP);
+        double val = 0.0;
+        uc_mem_write(m_uc, m_fpuHelperGuestAddr + 0x100u, &val, 8);
+        uc_emu_start(m_uc, m_fpuHelperGuestAddr, m_fpuHelperGuestAddr + 6u, 0, 1);
+        uc_mem_read(m_uc, m_fpuHelperGuestAddr + 0x100u, &val, 8);
+        writeRegister(X86Reg::EIP, savedEip);
+        return val;
+    }
+
+    void pushFpuDouble(double val) override {
+        if (!m_uc || !m_fpuHelperPage) return;
+        uint32_t savedEip = readRegister(X86Reg::EIP);
+        uc_mem_write(m_uc, m_fpuHelperGuestAddr + 0x100u, &val, 8);
+        uc_emu_start(m_uc, m_fpuHelperGuestAddr + 0x10u, m_fpuHelperGuestAddr + 0x16u, 0, 1);
+        writeRegister(X86Reg::EIP, savedEip);
     }
 
     void setThunkRange(uint32_t startAddr, uint32_t endAddr, ThunkTrapCallback cb) override {
@@ -275,6 +316,8 @@ private:
     uint8_t*    m_thunkDataPage = nullptr;
     uint8_t*    m_guestHeapPage = nullptr;
     uint8_t*    m_gdtHostPage = nullptr;
+    uint8_t*    m_fpuHelperPage = nullptr;
+    uint32_t    m_fpuHelperGuestAddr = 0x7FFDB000u;
     uint32_t    m_gdtGuestAddr = 0x7FFDC000u;
     uint32_t    m_fsBase = 0x7FFDF000u;
     uint32_t    m_thunkStart = 0x70000000u;

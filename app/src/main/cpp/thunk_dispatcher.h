@@ -163,7 +163,7 @@ private:
                 s.find("!ftell") == std::string::npos && s.find("!feof") == std::string::npos &&
                 s.find("!ferror") == std::string::npos && s.find("printf") == std::string::npos &&
                 s.find("!qsort") == std::string::npos && s.find("!bsearch") == std::string::npos &&
-                s.find("!rand") == std::string::npos && s.find("IDirect3D9::") == std::string::npos) {
+                s.find("!rand") == std::string::npos s.find("!rand") == std::string::nposs.find("!rand") == std::string::npos s.find("!_CI") == std::string::npos s.find("!rand") == std::string::nposs.find("!rand") == std::string::npos s.find("!_ftol") == std::string::npos && s.find("IDirect3D9::") == std::string::npos) {
                 size_t bang = s.find(33);
                 std::string sh = (bang != std::string::npos) ? s.substr(bang + 1) : s;
                 m_d3dTrace += sh + " ";

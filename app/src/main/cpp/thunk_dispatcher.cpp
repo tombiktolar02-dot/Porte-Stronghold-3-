@@ -1,6 +1,7 @@
 #include <sys/stat.h>
 #include <cstdio>
 #include "thunk_dispatcher.h"
+#include <cmath>
 #include <chrono>
 #include <ctime>
 #include <android/log.h>
@@ -5815,6 +5816,146 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         }
         cpu->writeRegister(X86Reg::EAX, 1u);
         cpu->writeRegister(X86Reg::ESP, esp + 12u); // stdcall (2 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_CIpow" || sym == "msvcr100.dll!_CIatan2" || sym == "msvcr100.dll!_CIfmod") {
+        double top = cpu->popFpuDouble();
+        double base = cpu->popFpuDouble();
+        double res = 0.0;
+        if (sym == "msvcr100.dll!_CIpow")        res = std::pow(base, top);
+        else if (sym == "msvcr100.dll!_CIatan2") res = std::atan2(base, top);
+        else                                     res = std::fmod(base, top);
+        cpu->pushFpuDouble(res);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_CIsin" || sym == "msvcr100.dll!_CIcos" || sym == "msvcr100.dll!_CItan" ||
+        sym == "msvcr100.dll!_CIsinh" || sym == "msvcr100.dll!_CIcosh" || sym == "msvcr100.dll!_CItanh" ||
+        sym == "msvcr100.dll!_CIasin" || sym == "msvcr100.dll!_CIacos" || sym == "msvcr100.dll!_CIatan" ||
+        sym == "msvcr100.dll!_CIsqrt" || sym == "msvcr100.dll!_CIexp" || sym == "msvcr100.dll!_CIlog" ||
+        sym == "msvcr100.dll!_CIlog10") {
+        double x = cpu->popFpuDouble();
+        double res = 0.0;
+        if (sym == "msvcr100.dll!_CIsin")        res = std::sin(x);
+        else if (sym == "msvcr100.dll!_CIcos")   res = std::cos(x);
+        else if (sym == "msvcr100.dll!_CItan")   res = std::tan(x);
+        else if (sym == "msvcr100.dll!_CIsinh")  res = std::sinh(x);
+        else if (sym == "msvcr100.dll!_CIcosh")  res = std::cosh(x);
+        else if (sym == "msvcr100.dll!_CItanh")  res = std::tanh(x);
+        else if (sym == "msvcr100.dll!_CIasin")  res = std::asin(x);
+        else if (sym == "msvcr100.dll!_CIacos")  res = std::acos(x);
+        else if (sym == "msvcr100.dll!_CIatan")  res = std::atan(x);
+        else if (sym == "msvcr100.dll!_CIsqrt")  res = std::sqrt(x);
+        else if (sym == "msvcr100.dll!_CIexp")   res = std::exp(x);
+        else if (sym == "msvcr100.dll!_CIlog")   res = std::log(x);
+        else                                     res = std::log10(x);
+        cpu->pushFpuDouble(res);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!pow" || sym == "msvcr100.dll!atan2" ||
+        sym == "msvcr100.dll!fmod" || sym == "msvcr100.dll!_hypot") {
+        double a = 0.0, b = 0.0;
+        cpu->readGuestMemory(esp + 4,  &a, 8);
+        cpu->readGuestMemory(esp + 12, &b, 8);
+        double res = 0.0;
+        if (sym == "msvcr100.dll!pow")        res = std::pow(a, b);
+        else if (sym == "msvcr100.dll!atan2") res = std::atan2(a, b);
+        else if (sym == "msvcr100.dll!fmod")  res = std::fmod(a, b);
+        else                                  res = std::hypot(a, b);
+        cpu->pushFpuDouble(res);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!sin" || sym == "msvcr100.dll!cos" || sym == "msvcr100.dll!tan" ||
+        sym == "msvcr100.dll!sinh" || sym == "msvcr100.dll!cosh" || sym == "msvcr100.dll!tanh" ||
+        sym == "msvcr100.dll!asin" || sym == "msvcr100.dll!acos" || sym == "msvcr100.dll!atan" ||
+        sym == "msvcr100.dll!sqrt" || sym == "msvcr100.dll!exp" || sym == "msvcr100.dll!log" ||
+        sym == "msvcr100.dll!log10" || sym == "msvcr100.dll!floor" || sym == "msvcr100.dll!ceil" ||
+        sym == "msvcr100.dll!fabs") {
+        double x = 0.0;
+        cpu->readGuestMemory(esp + 4, &x, 8);
+        double res = 0.0;
+        if (sym == "msvcr100.dll!sin")        res = std::sin(x);
+        else if (sym == "msvcr100.dll!cos")   res = std::cos(x);
+        else if (sym == "msvcr100.dll!tan")   res = std::tan(x);
+        else if (sym == "msvcr100.dll!sinh")  res = std::sinh(x);
+        else if (sym == "msvcr100.dll!cosh")  res = std::cosh(x);
+        else if (sym == "msvcr100.dll!tanh")  res = std::tanh(x);
+        else if (sym == "msvcr100.dll!asin")  res = std::asin(x);
+        else if (sym == "msvcr100.dll!acos")  res = std::acos(x);
+        else if (sym == "msvcr100.dll!atan")  res = std::atan(x);
+        else if (sym == "msvcr100.dll!sqrt")  res = std::sqrt(x);
+        else if (sym == "msvcr100.dll!exp")   res = std::exp(x);
+        else if (sym == "msvcr100.dll!log")   res = std::log(x);
+        else if (sym == "msvcr100.dll!log10") res = std::log10(x);
+        else if (sym == "msvcr100.dll!floor") res = std::floor(x);
+        else if (sym == "msvcr100.dll!ceil")  res = std::ceil(x);
+        else                                  res = std::fabs(x);
+        cpu->pushFpuDouble(res);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!ldexp") {
+        double x = 0.0; int32_t e = 0;
+        cpu->readGuestMemory(esp + 4,  &x, 8);
+        cpu->readGuestMemory(esp + 12, &e, 4);
+        cpu->pushFpuDouble(std::ldexp(x, e));
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!modf") {
+        double x = 0.0; uint32_t pInt = 0u;
+        cpu->readGuestMemory(esp + 4,  &x,    8);
+        cpu->readGuestMemory(esp + 12, &pInt, 4);
+        double ip = 0.0;
+        double frac = std::modf(x, &ip);
+        if (pInt >= 0x10000u) cpu->writeGuestMemory(pInt, &ip, 8);
+        cpu->pushFpuDouble(frac);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!frexp") {
+        double x = 0.0; uint32_t pExp = 0u;
+        cpu->readGuestMemory(esp + 4,  &x,    8);
+        cpu->readGuestMemory(esp + 12, &pExp, 4);
+        int e = 0;
+        double m = std::frexp(x, &e);
+        if (pExp >= 0x10000u) { int32_t e32 = e; cpu->writeGuestMemory(pExp, &e32, 4); }
+        cpu->pushFpuDouble(m);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_ftol" || sym == "msvcr100.dll!_ftol2" || sym == "msvcr100.dll!_ftol2_sse") {
+        double v = cpu->popFpuDouble();
+        int64_t iv = static_cast<int64_t>(v);
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(static_cast<uint64_t>(iv) & 0xFFFFFFFFULL));
+        cpu->writeRegister(X86Reg::EDX, static_cast<uint32_t>((static_cast<uint64_t>(iv) >> 32) & 0xFFFFFFFFULL));
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
         outNextEip = returnAddr;
         logSym(sym);
         return true;

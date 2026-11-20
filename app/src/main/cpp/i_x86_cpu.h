@@ -35,6 +35,8 @@ public:
     virtual uint32_t readRegister(X86Reg reg) const = 0;
     virtual void setThunkRange(uint32_t startAddr, uint32_t endAddr, ThunkTrapCallback cb) = 0;
     virtual X86StepResult stepInstructions(uint32_t entryPoint, uint32_t maxInstructions) = 0;
+    virtual double popFpuDouble() { return 0.0; }
+    virtual void pushFpuDouble(double /*val*/) {}
 };
 
 IX86CPU* createActiveX86CPU();
