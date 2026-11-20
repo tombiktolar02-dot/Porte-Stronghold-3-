@@ -5690,6 +5690,37 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         }
     }
 
+    if (sym.rfind("binkw32.dll!", 0) == 0) {
+        std::string fn = sym.substr(12);
+        uint32_t pop = 4u;
+        auto atPos = fn.rfind('@');
+        if (atPos != std::string::npos && atPos + 1 < fn.size()) {
+            uint32_t n = 0u;
+            bool ok = true;
+            for (size_t k = atPos + 1; k < fn.size(); ++k) {
+                if (fn[k] >= '0' && fn[k] <= '9') n = n * 10u + static_cast<uint32_t>(fn[k] - '0');
+                else { ok = false; break; }
+            }
+            if (ok && n <= 128u) pop = 4u + n;
+        }
+        uint32_t retVal = 0u;
+        if (fn.find("_BinkGetError@") == 0) {
+            uint8_t z = 0u;
+            cpu->writeGuestMemory(0x7000F200u, &z, 1);
+            retVal = 0x7000F200u;
+        } else if (fn.find("_BinkSetSoundSystem@") == 0 ||
+                   fn.find("_BinkOpenDirectSound@") == 0 ||
+                   fn.find("_BinkOpenWaveOut@") == 0 ||
+                   fn.find("_BinkOpenMiles@") == 0) {
+            retVal = 1u;
+        }
+        cpu->writeRegister(X86Reg::EAX, retVal);
+        cpu->writeRegister(X86Reg::ESP, esp + pop);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
     if (sym == "dinput8.dll!DirectInput8Create" || sym == "dynamic!DirectInput8Create") {
         uint32_t riid = 0u, ppvOut = 0u;
         cpu->readGuestMemory(esp + 12, &riid,   4);
