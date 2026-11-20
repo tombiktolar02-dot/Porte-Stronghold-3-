@@ -3119,6 +3119,91 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "msvcr100.dll!fgetc" || sym == "msvcr100.dll!getc" || sym == "dynamic!fgetc") {
+        uint32_t h = 0u; cpu->readGuestMemory(esp + 4, &h, 4);
+        FILE* f = getHostFile(h);
+        int res = f ? fgetc(f) : -1;
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(res));
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "msvcr100.dll!ungetc" || sym == "dynamic!ungetc") {
+        int32_t c = 0; uint32_t h = 0u;
+        cpu->readGuestMemory(esp + 4, &c, 4); cpu->readGuestMemory(esp + 8, &h, 4);
+        FILE* f = getHostFile(h);
+        int res = f ? ungetc(c, f) : -1;
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(res));
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "msvcr100.dll!fputc" || sym == "msvcr100.dll!putc" || sym == "dynamic!fputc") {
+        int32_t c = 0; uint32_t h = 0u;
+        cpu->readGuestMemory(esp + 4, &c, 4); cpu->readGuestMemory(esp + 8, &h, 4);
+        FILE* f = getHostFile(h);
+        int res = f ? fputc(c, f) : -1;
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(res));
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "msvcr100.dll!fgetpos" || sym == "dynamic!fgetpos") {
+        uint32_t h = 0u, posPtr = 0u;
+        cpu->readGuestMemory(esp + 4, &h, 4); cpu->readGuestMemory(esp + 8, &posPtr, 4);
+        FILE* f = getHostFile(h);
+        uint32_t res = 0xFFFFFFFFu;
+        if (f && posPtr >= 0x10000u) {
+            int64_t pos = static_cast<int64_t>(ftello(f));
+            if (pos >= 0) { cpu->writeGuestMemory(posPtr, &pos, 8); res = 0u; }
+        }
+        cpu->writeRegister(X86Reg::EAX, res);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "msvcr100.dll!fsetpos" || sym == "dynamic!fsetpos") {
+        uint32_t h = 0u, posPtr = 0u;
+        cpu->readGuestMemory(esp + 4, &h, 4); cpu->readGuestMemory(esp + 8, &posPtr, 4);
+        FILE* f = getHostFile(h);
+        uint32_t res = 0xFFFFFFFFu;
+        if (f && posPtr >= 0x10000u) {
+            int64_t pos = 0; cpu->readGuestMemory(posPtr, &pos, 8);
+            res = (fseeko(f, static_cast<off_t>(pos), SEEK_SET) == 0) ? 0u : 0xFFFFFFFFu;
+        }
+        cpu->writeRegister(X86Reg::EAX, res);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "msvcr100.dll!_fseeki64" || sym == "dynamic!_fseeki64") {
+        uint32_t h = 0u; int64_t off = 0; int32_t org = 0;
+        cpu->readGuestMemory(esp + 4, &h, 4); cpu->readGuestMemory(esp + 8, &off, 8); cpu->readGuestMemory(esp + 16, &org, 4);
+        FILE* f = getHostFile(h);
+        int res = f ? fseeko(f, static_cast<off_t>(off), org) : -1;
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(res));
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "msvcr100.dll!_ftelli64" || sym == "dynamic!_ftelli64") {
+        uint32_t h = 0u; cpu->readGuestMemory(esp + 4, &h, 4);
+        FILE* f = getHostFile(h);
+        int64_t pos = f ? static_cast<int64_t>(ftello(f)) : -1LL;
+        cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(pos & 0xFFFFFFFFULL));
+        cpu->writeRegister(X86Reg::EDX, static_cast<uint32_t>((static_cast<uint64_t>(pos) >> 32) & 0xFFFFFFFFULL));
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "msvcr100.dll!rewind" || sym == "dynamic!rewind") {
+        uint32_t h = 0u; cpu->readGuestMemory(esp + 4, &h, 4);
+        FILE* f = getHostFile(h);
+        if (f) rewind(f);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
     if (sym == "msvcr100.dll!fclose") {
         uint32_t handle = 0;
         cpu->readGuestMemory(esp + 4, &handle, 4);
