@@ -3080,7 +3080,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return s_cFiles[idx];
     };
 
-    if (sym == "msvcr100.dll!fopen") {
+    if ((sym == "msvcr100.dll!fopen" || sym == "msvcr100.dll!_fsopen" || sym == "dynamic!_fsopen")) {
         uint32_t pathPtr = 0, modePtr = 0;
         cpu->readGuestMemory(esp + 4, &pathPtr, 4);
         cpu->readGuestMemory(esp + 8, &modePtr, 4);
@@ -5378,6 +5378,19 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
     if (sym == "user32.dll!LoadCursorFromFileA" || sym == "user32.dll!LoadCursorFromFileW" ||
         sym == "user32.dll!CreateIconIndirect") {
         cpu->writeRegister(X86Reg::EAX, 0x00010002u); cpu->writeRegister(X86Reg::ESP, esp + 8u);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "msvcr100.dll!_lock_file" || sym == "msvcr100.dll!_unlock_file" ||
+        sym == "msvcr100.dll!clearerr" || sym == "msvcr100.dll!clearerr_s") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "msvcr100.dll!setvbuf" || sym == "dynamic!setvbuf") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
         outNextEip = returnAddr; logSym(sym); return true;
     }
 
