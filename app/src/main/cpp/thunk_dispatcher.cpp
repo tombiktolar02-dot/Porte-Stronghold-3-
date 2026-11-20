@@ -2487,7 +2487,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
     if (sym == "steam_api.dll!SteamAPI_Init" ||
         sym == "steam_api.dll!SteamAPI_InitSafe" ||
         sym == "steam_api.dll!SteamAPI_IsSteamRunning") {
-        cpu->writeRegister(X86Reg::EAX, 0u); // false: skip Steam interfaces
+        cpu->writeRegister(X86Reg::EAX, 1u); // true: Steam running (offline stub)
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
         logSym(sym);
@@ -2499,20 +2499,49 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         sym == "steam_api.dll!SteamAPI_RegisterCallback" ||
         sym == "steam_api.dll!SteamAPI_UnregisterCallback" ||
         sym == "steam_api.dll!SteamAPI_RegisterCallResult" ||
-        sym == "steam_api.dll!SteamAPI_UnregisterCallResult" ||
-        sym == "steam_api.dll!SteamUser" ||
-        sym == "steam_api.dll!SteamFriends" ||
-        sym == "steam_api.dll!SteamUtils" ||
-        sym == "steam_api.dll!SteamUserStats" ||
-        sym == "steam_api.dll!SteamApps" ||
-        sym == "steam_api.dll!SteamRemoteStorage" ||
-        sym == "steam_api.dll!SteamNetworking" ||
-        sym == "steam_api.dll!SteamMatchmaking") {
+        sym == "steam_api.dll!SteamAPI_UnregisterCallResult") {
         cpu->writeRegister(X86Reg::EAX, 0u);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
         logSym(sym);
         return true;
+    }
+
+    {
+        int steamIdx = -1;
+        if (sym == "steam_api.dll!SteamUser") steamIdx = 0;
+        else if (sym == "steam_api.dll!SteamFriends") steamIdx = 1;
+        else if (sym == "steam_api.dll!SteamUtils") steamIdx = 2;
+        else if (sym == "steam_api.dll!SteamUserStats") steamIdx = 3;
+        else if (sym == "steam_api.dll!SteamApps") steamIdx = 4;
+        else if (sym == "steam_api.dll!SteamRemoteStorage") steamIdx = 5;
+        else if (sym == "steam_api.dll!SteamNetworking") steamIdx = 6;
+        else if (sym == "steam_api.dll!SteamMatchmaking") steamIdx = 7;
+        if (steamIdx >= 0) {
+            static uint32_t s_steamObjs[8] = {};
+            uint32_t existingVt = 0;
+            if (s_steamObjs[steamIdx] != 0) {
+                cpu->readGuestMemory(s_steamObjs[steamIdx], &existingVt, 4);
+            }
+            if (s_steamObjs[steamIdx] == 0 || existingVt == 0) {
+                uint32_t vtAddr = allocGuest(64 * 4);
+                uint32_t objAddr = allocGuest(16);
+                if (vtAddr != 0 && objAddr != 0) {
+                    uint32_t vt[64];
+                    for (uint32_t si = 0; si < 64; ++si) {
+                        vt[si] = 0x7000A000u + static_cast<uint32_t>(steamIdx) * 0x100u + si * 4u;
+                    }
+                    cpu->writeGuestMemory(vtAddr, vt, sizeof(vt));
+                    cpu->writeGuestMemory(objAddr, &vtAddr, 4);
+                    s_steamObjs[steamIdx] = objAddr;
+                }
+            }
+            cpu->writeRegister(X86Reg::EAX, s_steamObjs[steamIdx]);
+            cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
+            outNextEip = returnAddr;
+            logSym(sym);
+            return true;
+        }
     }
 
     if (sym == "msvcr100.dll!ldiv" || sym == "msvcr100.dll!div") {
