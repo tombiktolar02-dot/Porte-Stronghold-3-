@@ -60,6 +60,28 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
             }
         }
         if (iface == 1) { // ISteamFriends
+            if (slot == 1) { // SetPersonaName
+                cpu->writeRegister(X86Reg::EAX, 1u);
+                cpu->writeRegister(X86Reg::EDX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 8);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 2) { // GetPersonaState (Online)
+                cpu->writeRegister(X86Reg::EAX, 1u);
+                cpu->writeRegister(X86Reg::ESP, esp + 4);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 3) { // GetFriendCount
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 8);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
             if (slot == 0) { // GetPersonaName
                 static uint32_t s_pName = 0;
                 uint8_t chk = 0;
@@ -115,6 +137,60 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
                 logSym(sym);
                 return true;
             }
+            if (slot == 5 || slot == 6) { // GetImageSize / GetImageRGBA
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 16);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 7) { // GetCSERIPPort
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 12);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 10 || slot == 16) { // SetOverlayNotificationPosition / SetWarningMessageHook
+                cpu->writeRegister(X86Reg::ESP, esp + 8);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 11) { // IsAPICallCompleted(uint64, bool*)
+                uint32_t pFailed = 0;
+                cpu->readGuestMemory(esp + 12, &pFailed, 4);
+                if (pFailed >= 0x10000u) { uint8_t z = 0; cpu->writeGuestMemory(pFailed, &z, 1); }
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 16);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 12) { // GetAPICallFailureReason(uint64)
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 12);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 13) { // GetAPICallResult(uint64, void*, int, int, bool*)
+                uint32_t pFailed = 0;
+                cpu->readGuestMemory(esp + 24, &pFailed, 4);
+                if (pFailed >= 0x10000u) { uint8_t z = 0; cpu->writeGuestMemory(pFailed, &z, 1); }
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 28);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 14 || slot == 15 || slot == 18) { // RunFrame / GetIPCCallCount / BOverlayNeedsPresent
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 4);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
             if (slot == 17) { // IsOverlayEnabled
                 cpu->writeRegister(X86Reg::EAX, 0u);
                 cpu->writeRegister(X86Reg::ESP, esp + 4);
@@ -124,6 +200,66 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
             }
         }
         if (iface == 3) { // ISteamUserStats
+            if (slot == 1 || slot == 2) { // GetStat(const char*, int32*/float*)
+                uint32_t pVal = 0;
+                cpu->readGuestMemory(esp + 8, &pVal, 4);
+                if (pVal >= 0x10000u) { uint32_t z = 0; cpu->writeGuestMemory(pVal, &z, 4); }
+                cpu->writeRegister(X86Reg::EAX, 1u);
+                cpu->writeRegister(X86Reg::ESP, esp + 12);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 3 || slot == 4) { // SetStat(const char*, int32/float)
+                cpu->writeRegister(X86Reg::EAX, 1u);
+                cpu->writeRegister(X86Reg::ESP, esp + 12);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 5) { // UpdateAvgRateStat(const char*, float, double)
+                cpu->writeRegister(X86Reg::EAX, 1u);
+                cpu->writeRegister(X86Reg::ESP, esp + 20);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 6) { // GetAchievement(const char*, bool*)
+                uint32_t pAch = 0;
+                cpu->readGuestMemory(esp + 8, &pAch, 4);
+                if (pAch >= 0x10000u) { uint8_t z = 0; cpu->writeGuestMemory(pAch, &z, 1); }
+                cpu->writeRegister(X86Reg::EAX, 1u);
+                cpu->writeRegister(X86Reg::ESP, esp + 12);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 7 || slot == 8) { // SetAchievement / ClearAchievement
+                cpu->writeRegister(X86Reg::EAX, 1u);
+                cpu->writeRegister(X86Reg::ESP, esp + 8);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 9) { // GetAchievementAndUnlockTime
+                uint32_t pAch = 0, pTime = 0;
+                cpu->readGuestMemory(esp + 8, &pAch, 4);
+                cpu->readGuestMemory(esp + 12, &pTime, 4);
+                if (pAch >= 0x10000u) { uint8_t z = 0; cpu->writeGuestMemory(pAch, &z, 1); }
+                if (pTime >= 0x10000u) { uint32_t z = 0; cpu->writeGuestMemory(pTime, &z, 4); }
+                cpu->writeRegister(X86Reg::EAX, 1u);
+                cpu->writeRegister(X86Reg::ESP, esp + 16);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 10) { // StoreStats
+                cpu->writeRegister(X86Reg::EAX, 1u);
+                cpu->writeRegister(X86Reg::ESP, esp + 4);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
             if (slot == 0) { // RequestCurrentStats
                 cpu->writeRegister(X86Reg::EAX, 1u);
                 cpu->writeRegister(X86Reg::ESP, esp + 4);
