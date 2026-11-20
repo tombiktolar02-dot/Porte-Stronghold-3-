@@ -418,7 +418,28 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
     if (sym == "kernel32.dll!GetModuleHandleW" || sym == "kernel32.dll!GetModuleHandleA") {
         uint32_t lpModuleName = 0;
         cpu->readGuestMemory(esp + 4, &lpModuleName, 4);
-        uint32_t hMod = (lpModuleName == 0) ? 0x00400000u : 0u;
+        uint32_t hMod = 0u;
+        if (lpModuleName == 0u) {
+            hMod = 0x00400000u;
+        } else {
+            std::string modName;
+            if (sym == "kernel32.dll!GetModuleHandleW") {
+                for (int i = 0; i < 127; ++i) {
+                    uint16_t wc = 0;
+                    cpu->readGuestMemory(lpModuleName + i * 2, &wc, 2);
+                    if (wc == 0) break;
+                    modName.push_back(static_cast<char>(wc & 0xFFu));
+                }
+            } else {
+                for (int i = 0; i < 127; ++i) {
+                    char c = 0;
+                    cpu->readGuestMemory(lpModuleName + i, &c, 1);
+                    if (c == 0) break;
+                    modName.push_back(c);
+                }
+            }
+            hMod = findLoadedModule(modName);
+        }
         cpu->writeRegister(X86Reg::EAX, hMod);
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
         outNextEip = returnAddr;
@@ -564,26 +585,51 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
-    if (sym == "kernel32.dll!LoadLibraryA") {
+    if (sym == "kernel32.dll!LoadLibraryA" || sym == "kernel32.dll!LoadLibraryExA") {
+        bool isEx = (sym == "kernel32.dll!LoadLibraryExA");
         uint32_t namePtr = 0;
         cpu->readGuestMemory(esp + 4, &namePtr, 4);
-        char nameBuf[128] = {};
-        if (namePtr != 0) {
-            cpu->readGuestMemory(namePtr, nameBuf, sizeof(nameBuf) - 1);
-            nameBuf[sizeof(nameBuf) - 1] = '\0';
+        std::string modName;
+        if (namePtr >= 0x10000u) {
+            for (int i = 0; i < 127; ++i) {
+                char c = 0;
+                cpu->readGuestMemory(namePtr + i, &c, 1);
+                if (c == 0) break;
+                modName.push_back(c);
+            }
         }
-        cpu->writeRegister(X86Reg::EAX, 0x61000000u);
-        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
+        uint32_t realBase = findLoadedModule(modName);
+        uint32_t hMod = (realBase != 0u) ? realBase : 0x61000000u;
+        cpu->writeRegister(X86Reg::EAX, hMod);
+        cpu->writeRegister(X86Reg::ESP, esp + (isEx ? 16u : 8u)); // stdcall
         outNextEip = returnAddr;
-        m_handledLog.push_back(sym + "(\"" + std::string(nameBuf) + "\")");
+        char lbuf[224];
+        snprintf(lbuf, sizeof(lbuf), "%s(\"%s\")->0x%08X", sym.c_str(), modName.c_str(), hMod);
+        m_handledLog.push_back(lbuf);
         return true;
     }
 
-    if (sym == "kernel32.dll!LoadLibraryW") {
-        cpu->writeRegister(X86Reg::EAX, 0x61000000u);
-        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
+    if (sym == "kernel32.dll!LoadLibraryW" || sym == "kernel32.dll!LoadLibraryExW") {
+        bool isEx = (sym == "kernel32.dll!LoadLibraryExW");
+        uint32_t namePtr = 0;
+        cpu->readGuestMemory(esp + 4, &namePtr, 4);
+        std::string modName;
+        if (namePtr >= 0x10000u) {
+            for (int i = 0; i < 127; ++i) {
+                uint16_t wc = 0;
+                cpu->readGuestMemory(namePtr + i * 2, &wc, 2);
+                if (wc == 0) break;
+                modName.push_back(static_cast<char>(wc & 0xFFu));
+            }
+        }
+        uint32_t realBase = findLoadedModule(modName);
+        uint32_t hMod = (realBase != 0u) ? realBase : 0x61000000u;
+        cpu->writeRegister(X86Reg::EAX, hMod);
+        cpu->writeRegister(X86Reg::ESP, esp + (isEx ? 16u : 8u)); // stdcall
         outNextEip = returnAddr;
-        logSym(sym);
+        char lbuf[224];
+        snprintf(lbuf, sizeof(lbuf), "%s(\"%s\")->0x%08X", sym.c_str(), modName.c_str(), hMod);
+        m_handledLog.push_back(lbuf);
         return true;
     }
 
@@ -738,7 +784,75 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
             procStr = "#" + std::to_string(namePtr);
         }
         uint32_t resolvedAddr = 0u;
-        if (namePtr > 0xFFFFu) {
+        bool resolvedFromRealPe = false;
+        if (isLoadedModuleBase(hMod)) {
+            resolvedFromRealPe = true;
+            uint16_t mz = 0;
+            cpu->readGuestMemory(hMod, &mz, 2);
+            if (mz == 0x5A4Du) {
+                uint32_t lfanew = 0;
+                cpu->readGuestMemory(hMod + 0x3Cu, &lfanew, 4);
+                if (lfanew > 0u && lfanew < 0x4000u) {
+                    uint32_t peSig = 0;
+                    uint16_t optMagic = 0;
+                    cpu->readGuestMemory(hMod + lfanew, &peSig, 4);
+                    cpu->readGuestMemory(hMod + lfanew + 24u, &optMagic, 2);
+                    if (peSig == 0x00004550u && optMagic == 0x010Bu) {
+                        uint32_t expRva = 0, expSize = 0;
+                        cpu->readGuestMemory(hMod + lfanew + 0x78u, &expRva, 4);
+                        cpu->readGuestMemory(hMod + lfanew + 0x7Cu, &expSize, 4);
+                        if (expRva != 0u) {
+                            uint32_t expDir[10] = {};
+                            cpu->readGuestMemory(hMod + expRva, expDir, sizeof(expDir));
+                            uint32_t ordBase      = expDir[4];
+                            uint32_t numFuncs     = expDir[5];
+                            uint32_t numNames     = expDir[6];
+                            uint32_t addrFuncsRva = expDir[7];
+                            uint32_t addrNamesRva = expDir[8];
+                            uint32_t addrOrdsRva  = expDir[9];
+                            if (numFuncs > 65536u) numFuncs = 65536u;
+                            if (numNames > 65536u) numNames = 65536u;
+                            if (namePtr > 0xFFFFu) {
+                                std::string rawName = procStr.substr(1, procStr.size() - 2);
+                                if (!rawName.empty() && numNames > 0u && addrNamesRva != 0u && addrOrdsRva != 0u && addrFuncsRva != 0u) {
+                                    std::vector<uint32_t> nameRvas(numNames);
+                                    cpu->readGuestMemory(hMod + addrNamesRva, nameRvas.data(), numNames * 4u);
+                                    for (uint32_t ni = 0; ni < numNames; ++ni) {
+                                        if (nameRvas[ni] == 0u) continue;
+                                        bool match = true;
+                                        for (size_t ci = 0; ci <= rawName.size(); ++ci) {
+                                            char ch = 0;
+                                            cpu->readGuestMemory(hMod + nameRvas[ni] + static_cast<uint32_t>(ci), &ch, 1);
+                                            char expected = (ci < rawName.size()) ? rawName[ci] : 0;
+                                            if (ch != expected) { match = false; break; }
+                                        }
+                                        if (match) {
+                                            uint16_t ordIdx = 0;
+                                            cpu->readGuestMemory(hMod + addrOrdsRva + ni * 2u, &ordIdx, 2);
+                                            if (ordIdx < numFuncs) {
+                                                uint32_t funcRva = 0;
+                                                cpu->readGuestMemory(hMod + addrFuncsRva + static_cast<uint32_t>(ordIdx) * 4u, &funcRva, 4);
+                                                if (funcRva != 0u && !(funcRva >= expRva && funcRva < expRva + expSize)) {
+                                                    resolvedAddr = hMod + funcRva;
+                                                }
+                                            }
+                                            break;
+                                        }
+                                    }
+                                }
+                            } else if (namePtr >= ordBase && (namePtr - ordBase) < numFuncs && addrFuncsRva != 0u) {
+                                uint32_t funcRva = 0;
+                                cpu->readGuestMemory(hMod + addrFuncsRva + (namePtr - ordBase) * 4u, &funcRva, 4);
+                                if (funcRva != 0u && !(funcRva >= expRva && funcRva < expRva + expSize)) {
+                                    resolvedAddr = hMod + funcRva;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (!resolvedFromRealPe && namePtr > 0xFFFFu) {
             std::string rawName = procStr.substr(1, procStr.size() - 2);
             std::string suffix = "!" + rawName;
             for (const auto& kv : m_reverseMap) {

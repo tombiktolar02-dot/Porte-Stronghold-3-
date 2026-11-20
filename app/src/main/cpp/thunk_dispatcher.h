@@ -11,6 +11,35 @@
 class ThunkDispatcher {
 public:
     void buildReverseMap(const std::unordered_map<std::string, uint32_t>& forwardThunkTable);
+    void registerModule(const std::string& name, uint32_t baseAddr) {
+        std::string low;
+        low.reserve(name.size());
+        for (char c : name) low.push_back((c >= 65 && c <= 90) ? static_cast<char>(c + 32) : c);
+        size_t cut = 0;
+        for (size_t i = 0; i < low.size(); ++i) if (low[i] == 47 || low[i] == 92) cut = i + 1;
+        if (cut > 0) low = low.substr(cut);
+        m_loadedModules[low] = baseAddr;
+    }
+    uint32_t findLoadedModule(const std::string& rawPath) const {
+        std::string low;
+        low.reserve(rawPath.size());
+        for (char c : rawPath) low.push_back((c >= 65 && c <= 90) ? static_cast<char>(c + 32) : c);
+        size_t cut = 0;
+        for (size_t i = 0; i < low.size(); ++i) if (low[i] == 47 || low[i] == 92) cut = i + 1;
+        if (cut > 0) low = low.substr(cut);
+        auto it = m_loadedModules.find(low);
+        if (it != m_loadedModules.end()) return it->second;
+        if (low.find(46) == std::string::npos) {
+            it = m_loadedModules.find(low + ".dll");
+            if (it != m_loadedModules.end()) return it->second;
+        }
+        return 0u;
+    }
+    bool isLoadedModuleBase(uint32_t base) const {
+        if (base == 0u) return false;
+        for (const auto& kv : m_loadedModules) if (kv.second == base) return true;
+        return false;
+    }
     std::string resolveAddress(uint32_t thunkAddr) const;
     size_t count() const { return m_reverseMap.size(); }
 
@@ -25,6 +54,7 @@ public:
 
 private:
     std::unordered_map<uint32_t, std::string> m_reverseMap;
+    std::unordered_map<std::string, uint32_t> m_loadedModules;
     std::vector<std::string> m_handledLog;
     uint32_t    m_lastTrappedAddr = 0;
     uint32_t    m_lastReturnAddr  = 0;

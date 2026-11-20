@@ -348,6 +348,9 @@ static std::string runStage5BootstrapProbe() {
 
     ThunkDispatcher dispatcher;
     dispatcher.buildReverseMap(g_thunkTable);
+    for (const auto& m : g_modules) {
+        if (m.simBase != 0u) dispatcher.registerModule(m.name, m.simBase);
+    }
     {
         const char cmdA[] = "Stronghold3.exe";
         const char16_t cmdW[] = u"Stronghold3.exe";
