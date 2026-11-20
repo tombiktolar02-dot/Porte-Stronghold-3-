@@ -5343,6 +5343,44 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    static std::unordered_map<int32_t, uint32_t> s_classLongs;
+    static uint32_t s_curCursor = 0x00010001u;
+    if (sym == "user32.dll!SetClassLongA" || sym == "user32.dll!SetClassLongW" ||
+        sym == "dynamic!SetClassLongA" || sym == "dynamic!SetClassLongW") {
+        int32_t idx = 0; uint32_t val = 0u;
+        cpu->readGuestMemory(esp + 8, &idx, 4); cpu->readGuestMemory(esp + 12, &val, 4);
+        uint32_t prev = s_classLongs.count(idx) ? s_classLongs[idx] : (idx == -12 ? s_curCursor : 0u);
+        s_classLongs[idx] = val; if (idx == -12) s_curCursor = val;
+        cpu->writeRegister(X86Reg::EAX, prev); cpu->writeRegister(X86Reg::ESP, esp + 16u);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "user32.dll!GetClassLongA" || sym == "user32.dll!GetClassLongW" ||
+        sym == "dynamic!GetClassLongA" || sym == "dynamic!GetClassLongW") {
+        int32_t idx = 0; cpu->readGuestMemory(esp + 8, &idx, 4);
+        uint32_t val = s_classLongs.count(idx) ? s_classLongs[idx] : (idx == -12 ? s_curCursor : 0u);
+        cpu->writeRegister(X86Reg::EAX, val); cpu->writeRegister(X86Reg::ESP, esp + 12u);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "user32.dll!GetCursor" || sym == "dynamic!GetCursor") {
+        cpu->writeRegister(X86Reg::EAX, s_curCursor); cpu->writeRegister(X86Reg::ESP, esp + 4u);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "user32.dll!GetClipCursor" || sym == "dynamic!GetClipCursor") {
+        uint32_t pr = 0u; cpu->readGuestMemory(esp + 4, &pr, 4);
+        if (pr >= 0x10000u) { int32_t r[4] = {0, 0, 1280, 720}; cpu->writeGuestMemory(pr, r, 16); }
+        cpu->writeRegister(X86Reg::EAX, 1u); cpu->writeRegister(X86Reg::ESP, esp + 8u);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "user32.dll!LoadCursorFromFileA" || sym == "user32.dll!LoadCursorFromFileW" ||
+        sym == "user32.dll!CreateIconIndirect") {
+        cpu->writeRegister(X86Reg::EAX, 0x00010002u); cpu->writeRegister(X86Reg::ESP, esp + 8u);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
     if (sym == "dinput8.dll!DirectInput8Create" || sym == "dynamic!DirectInput8Create") {
         uint32_t riid = 0u, ppvOut = 0u;
         cpu->readGuestMemory(esp + 12, &riid,   4);
