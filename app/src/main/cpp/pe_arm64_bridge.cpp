@@ -481,6 +481,9 @@ static std::string runStage5BootstrapProbe() {
              stepRes.reason.c_str(), totalSteps, dispatcher.handledLog().size(), stepRes.stopAddress);
     out << sbuf;
 
+    if (!dispatcher.d3dTrace().empty()) {
+        out << "[D3D9 TRACE] " << dispatcher.d3dTrace() << "\n";
+    }
     if (!dispatcher.lastMsgBox().empty()) {
         out << "[LAST MSGBOX] " << dispatcher.lastMsgBox() << "\n";
     }

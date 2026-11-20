@@ -57,6 +57,7 @@ public:
     uint32_t lastTrappedAddress() const { return m_lastTrappedAddr; }
     uint32_t lastReturnAddress() const { return m_lastReturnAddr; }
     const std::string& lastMsgBox() const { return m_lastMsgBox; }
+    const std::string& d3dTrace() const { return m_d3dTrace; }
     const std::string& lastTrappedSymbol() const { return m_lastTrappedSym; }
     const std::vector<std::string>& handledLog() const { return m_handledLog; }
 
@@ -79,6 +80,7 @@ private:
     uint32_t    m_oomCount   = 0;
 
     std::string m_lastMsgBox;
+    std::string m_d3dTrace;
     std::string m_lastCmp;
 
     void logSym(const std::string& s) {

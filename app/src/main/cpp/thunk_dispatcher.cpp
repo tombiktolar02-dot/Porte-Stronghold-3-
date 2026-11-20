@@ -38,6 +38,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
 
     if (thunkAddr >= 0x7000C000u && thunkAddr < 0x7000C100u) {
         uint32_t slot = (thunkAddr - 0x7000C000u) >> 2;
+        if (m_d3dTrace.size() < 200u) m_d3dTrace += "S" + std::to_string(slot) + " ";
         if (slot == 0) { // IDirect3D9::QueryInterface
             uint32_t thisPtr = 0u, ppv = 0u;
             cpu->readGuestMemory(esp + 4,  &thisPtr, 4);
@@ -99,15 +100,31 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
             logSym(sym);
             return true;
         }
-        if (slot == 7 || slot == 8) { // EnumAdapterModes / GetAdapterDisplayMode
+        if (slot == 7) { // EnumAdapterModes(this, Adapter, Format, Mode, pMode)
+            uint32_t reqFmt = 22u, modeIdx = 0u, pMode = 0u;
+            cpu->readGuestMemory(esp + 12, &reqFmt,  4);
+            cpu->readGuestMemory(esp + 16, &modeIdx, 4);
+            cpu->readGuestMemory(esp + 20, &pMode,   4);
+            uint32_t hr = (modeIdx == 0u) ? 0u : 0x8876086Cu;
+            if (modeIdx == 0u && pMode >= 0x10000u) {
+                uint32_t dm[4] = { 1280u, 720u, 60u, (reqFmt != 0u) ? reqFmt : 22u };
+                cpu->writeGuestMemory(pMode, dm, sizeof(dm));
+            }
+            cpu->writeRegister(X86Reg::EAX, hr);
+            cpu->writeRegister(X86Reg::ESP, esp + 24u);
+            outNextEip = returnAddr;
+            logSym(sym);
+            return true;
+        }
+        if (slot == 8) { // GetAdapterDisplayMode(this, Adapter, pMode)
             uint32_t pMode = 0u;
-            cpu->readGuestMemory(esp + ((slot == 7) ? 20u : 12u), &pMode, 4);
+            cpu->readGuestMemory(esp + 12, &pMode, 4);
             if (pMode >= 0x10000u) {
-                uint32_t dm[4] = { 1280u, 720u, 60u, 22u }; // 1280x720@60 X8R8G8B8
+                uint32_t dm[4] = { 1280u, 720u, 60u, 22u };
                 cpu->writeGuestMemory(pMode, dm, sizeof(dm));
             }
             cpu->writeRegister(X86Reg::EAX, 0u);
-            cpu->writeRegister(X86Reg::ESP, esp + ((slot == 7) ? 24u : 16u));
+            cpu->writeRegister(X86Reg::ESP, esp + 16u);
             outNextEip = returnAddr;
             logSym(sym);
             return true;
@@ -138,40 +155,71 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
             logSym(sym);
             return true;
         }
-        if (slot == 14) { // GetDeviceCaps(this, Adapter, DevType, pCaps)
+        if (slot == 14) { // GetDeviceCaps(this, Adapter, DevType, pCaps) - exact d3d9caps.h layout
             uint32_t pCaps = 0u;
             cpu->readGuestMemory(esp + 16, &pCaps, 4);
             if (pCaps >= 0x10000u) {
                 uint32_t caps[76] = {};
-                caps[0]  = 1u;          // D3DDEVTYPE_HAL
+                caps[0]  = 1u;          // DeviceType = D3DDEVTYPE_HAL
+                caps[1]  = 0u;          // AdapterOrdinal
                 caps[2]  = 0x00020000u; // Caps
                 caps[3]  = 0x60020000u; // Caps2
-                caps[5]  = 0x001BBEF0u; // DevCaps
-                caps[6]  = 0x002FCCF2u; // PrimitiveMiscCaps
-                caps[7]  = 0x07732191u; // RasterCaps
-                caps[12] = 0x0001EC45u; // TextureCaps
-                caps[20] = 4096u;       // MaxTextureWidth
-                caps[21] = 4096u;       // MaxTextureHeight
-                caps[22] = 2048u;       // MaxVolumeExtent
-                caps[23] = 8192u;       // MaxTextureRepeat
-                caps[24] = 4096u;       // MaxTextureAspectRatio
-                caps[25] = 16u;         // MaxAnisotropy
-                caps[33] = 8u;          // MaxTextureBlendStages
-                caps[34] = 8u;          // MaxSimultaneousTextures
-                caps[39] = 8u;          // MaxActiveLights
-                caps[40] = 6u;          // MaxUserClipPlanes
-                caps[41] = 4u;          // MaxVertexBlendMatrices
-                caps[42] = 255u;        // MaxVertexBlendMatrixIndex
-                caps[44] = 1048575u;    // MaxPrimitiveCount
-                caps[45] = 1048575u;    // MaxVertexIndex
-                caps[46] = 16u;         // MaxStreams
-                caps[47] = 255u;        // MaxStreamStride
-                caps[48] = 0xFFFE0300u; // VertexShaderVersion 3.0
-                caps[49] = 256u;        // MaxVertexShaderConst
-                caps[50] = 0xFFFF0300u; // PixelShaderVersion 3.0
-                caps[64] = 4u;          // NumSimultaneousRTs
-                caps[73] = 512u;        // VS30InstructionSlots
-                caps[75] = 512u;        // PS30InstructionSlots
+                caps[4]  = 0x000003A0u; // Caps3
+                caps[5]  = 0x80000001u; // PresentationIntervals
+                caps[6]  = 0x00000001u; // CursorCaps
+                caps[7]  = 0x001BBEF0u; // DevCaps (HW T&L, PureDevice, HW Raster)
+                caps[8]  = 0x002FCCF2u; // PrimitiveMiscCaps
+                caps[9]  = 0x07732191u; // RasterCaps
+                caps[10] = 0x000000FFu; // ZCmpCaps
+                caps[11] = 0x00003FFFu; // SrcBlendCaps
+                caps[12] = 0x00003FFFu; // DestBlendCaps
+                caps[13] = 0x000000FFu; // AlphaCmpCaps
+                caps[14] = 0x00084208u; // ShadeCaps
+                caps[15] = 0x0001EC45u; // TextureCaps
+                caps[16] = 0x03030700u; // TextureFilterCaps
+                caps[17] = 0x03030700u; // CubeTextureFilterCaps
+                caps[18] = 0x03030700u; // VolumeTextureFilterCaps
+                caps[19] = 0x0000003Fu; // TextureAddressCaps
+                caps[20] = 0x0000003Fu; // VolumeTextureAddressCaps
+                caps[21] = 0x0000001Fu; // LineCaps
+                caps[22] = 4096u;       // MaxTextureWidth
+                caps[23] = 4096u;       // MaxTextureHeight
+                caps[24] = 2048u;       // MaxVolumeExtent
+                caps[25] = 8192u;       // MaxTextureRepeat
+                caps[26] = 4096u;       // MaxTextureAspectRatio
+                caps[27] = 16u;         // MaxAnisotropy
+                caps[28] = 0x4E6E6B28u; // MaxVertexW (1e9f)
+                caps[34] = 0x000001FFu; // StencilCaps
+                caps[35] = 0x00180008u; // FVFCaps
+                caps[36] = 0x03FFFFFFu; // TextureOpCaps
+                caps[37] = 8u;          // MaxTextureBlendStages
+                caps[38] = 8u;          // MaxSimultaneousTextures
+                caps[39] = 0x0000013Bu; // VertexProcessingCaps
+                caps[40] = 8u;          // MaxActiveLights
+                caps[41] = 6u;          // MaxUserClipPlanes
+                caps[42] = 4u;          // MaxVertexBlendMatrices
+                caps[43] = 255u;        // MaxVertexBlendMatrixIndex
+                caps[44] = 0x42800000u; // MaxPointSize (64.0f)
+                caps[45] = 1048575u;    // MaxPrimitiveCount
+                caps[46] = 1048575u;    // MaxVertexIndex
+                caps[47] = 16u;         // MaxStreams
+                caps[48] = 255u;        // MaxStreamStride
+                caps[49] = 0xFFFE0300u; // VertexShaderVersion 3.0
+                caps[50] = 256u;        // MaxVertexShaderConst
+                caps[51] = 0xFFFF0300u; // PixelShaderVersion 3.0
+                caps[52] = 0x477FFF00u; // PixelShader1xMaxValue (65504.0f)
+                caps[53] = 0x00000051u; // DevCaps2
+                caps[58] = 1u;          // NumberOfAdaptersInGroup
+                caps[59] = 0x000003FFu; // DeclTypes
+                caps[60] = 4u;          // NumSimultaneousRTs
+                caps[61] = 0x03000300u; // StretchRectFilterCaps
+                caps[62] = 1u; caps[63] = 24u; caps[64] = 32u; caps[65] = 4u; // VS20Caps
+                caps[66] = 31u; caps[67] = 24u; caps[68] = 32u; caps[69] = 4u; caps[70] = 512u; // PS20Caps
+                caps[71] = 0x03000300u; // VertexTextureFilterCaps
+                caps[72] = 65535u;      // MaxVShaderInstructionsExecuted
+                caps[73] = 65535u;      // MaxPShaderInstructionsExecuted
+                caps[74] = 512u;        // MaxVertexShader30InstructionSlots
+                caps[75] = 512u;        // MaxPixelShader30InstructionSlots
                 cpu->writeGuestMemory(pCaps, caps, sizeof(caps));
             }
             cpu->writeRegister(X86Reg::EAX, 0u);
@@ -5193,6 +5241,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
     }
 
     if (sym == "d3d9.dll!Direct3DCreate9" || sym == "dynamic!Direct3DCreate9") {
+        if (m_d3dTrace.size() < 200u) m_d3dTrace += "Create9 ";
         static uint32_t s_d3d9Obj = 0u;
         uint32_t existingVt = 0u;
         if (s_d3d9Obj != 0u) cpu->readGuestMemory(s_d3d9Obj, &existingVt, 4);
@@ -5214,6 +5263,42 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         }
         cpu->writeRegister(X86Reg::EAX, s_d3d9Obj);
         cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg: SDKVersion)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "ws2_32.dll!#115" || sym == "ws2_32.dll!WSAStartup") {
+        uint32_t wVer = 0u, pWsa = 0u;
+        cpu->readGuestMemory(esp + 4, &wVer, 4);
+        cpu->readGuestMemory(esp + 8, &pWsa, 4);
+        if (pWsa >= 0x10000u) {
+            std::vector<uint8_t> wsa(400, 0u);
+            uint16_t ver = static_cast<uint16_t>(wVer & 0xFFFFu);
+            if (ver == 0u) ver = 0x0202u;
+            memcpy(wsa.data(),     &ver, 2);
+            memcpy(wsa.data() + 2, &ver, 2);
+            cpu->writeGuestMemory(pWsa, wsa.data(), wsa.size());
+        }
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12u); // stdcall (2 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "ws2_32.dll!#116" || sym == "ws2_32.dll!WSACleanup" ||
+        sym == "ws2_32.dll!#111" || sym == "ws2_32.dll!WSAGetLastError") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // stdcall (0 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "ws2_32.dll!#112" || sym == "ws2_32.dll!WSASetLastError") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8u); // stdcall (1 arg)
         outNextEip = returnAddr;
         logSym(sym);
         return true;
