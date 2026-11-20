@@ -2526,7 +2526,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
         char lbuf[192]; snprintf(lbuf, sizeof(lbuf), "%s(n=%d,d=%d,cmp=%s)", sym.c_str(), numer, denom, m_lastCmp.c_str());
-        m_handledLog.push_back(lbuf);
+        (void)lbuf;
         return true;
     }
 
@@ -3483,6 +3483,62 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::ESP, esp + 12); // stdcall (2 args)
         outNextEip = returnAddr;
         logSym(sym);
+        return true;
+    }
+
+    if (sym == "user32.dll!MessageBoxW" || sym == "user32.dll!MessageBoxExW" ||
+        sym == "dynamic!MessageBoxW" || sym == "dynamic!MessageBoxExW") {
+        bool isEx = (sym.find("ExW") != std::string::npos);
+        uint32_t pTxt = 0, pCap = 0, uType = 0;
+        cpu->readGuestMemory(esp + 8, &pTxt, 4);
+        cpu->readGuestMemory(esp + 12, &pCap, 4);
+        cpu->readGuestMemory(esp + 16, &uType, 4);
+        auto readWStr = [&](uint32_t ptr, int maxChars) {
+            std::string s;
+            if (ptr < 0x10000u) return s;
+            for (int i = 0; i < maxChars; ++i) {
+                uint16_t wc = 0;
+                cpu->readGuestMemory(ptr + i * 2, &wc, 2);
+                if (wc == 0) break;
+                if (wc == 10u || wc == 13u) s.push_back(32);
+                else if (wc < 0x80u) s.push_back(static_cast<char>(wc));
+                else if (wc < 0x800u) {
+                    s.push_back(static_cast<char>(0xC0u | (wc >> 6)));
+                    s.push_back(static_cast<char>(0x80u | (wc & 0x3Fu)));
+                } else {
+                    s.push_back(static_cast<char>(0xE0u | (wc >> 12)));
+                    s.push_back(static_cast<char>(0x80u | ((wc >> 6) & 0x3Fu)));
+                    s.push_back(static_cast<char>(0x80u | (wc & 0x3Fu)));
+                }
+            }
+            return s;
+        };
+        std::string txt = readWStr(pTxt, 240);
+        std::string cap = readWStr(pCap, 120);
+        char mbuf[512];
+        snprintf(mbuf, sizeof(mbuf), "MSGBOX_W[%s]: %s (type=0x%X)", cap.c_str(), txt.c_str(), uType);
+        m_handledLog.push_back(mbuf);
+        cpu->writeRegister(X86Reg::EAX, 1u); // IDOK
+        cpu->writeRegister(X86Reg::ESP, esp + (isEx ? 24u : 20u)); // stdcall
+        outNextEip = returnAddr;
+        return true;
+    }
+
+    if (sym == "user32.dll!MessageBoxA" || sym == "user32.dll!MessageBoxExA" ||
+        sym == "dynamic!MessageBoxA" || sym == "dynamic!MessageBoxExA") {
+        bool isEx = (sym.find("ExA") != std::string::npos);
+        uint32_t pTxt = 0, pCap = 0, uType = 0;
+        cpu->readGuestMemory(esp + 8, &pTxt, 4);
+        cpu->readGuestMemory(esp + 12, &pCap, 4);
+        cpu->readGuestMemory(esp + 16, &uType, 4);
+        std::string txt = (pTxt >= 0x10000u) ? readCStr(pTxt, 240) : "";
+        std::string cap = (pCap >= 0x10000u) ? readCStr(pCap, 120) : "";
+        char mbuf[512];
+        snprintf(mbuf, sizeof(mbuf), "MSGBOX_A[%s]: %s (type=0x%X)", cap.c_str(), txt.c_str(), uType);
+        m_handledLog.push_back(mbuf);
+        cpu->writeRegister(X86Reg::EAX, 1u); // IDOK
+        cpu->writeRegister(X86Reg::ESP, esp + (isEx ? 24u : 20u)); // stdcall
+        outNextEip = returnAddr;
         return true;
     }
 

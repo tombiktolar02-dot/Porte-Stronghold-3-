@@ -368,7 +368,7 @@ static std::string runStage5BootstrapProbe() {
         });
 
     uint32_t totalSteps = 0;
-    const uint32_t maxTotalSteps = 600000000;
+    const uint32_t maxTotalSteps = 2000000000u;
     X86StepResult stepRes{};
     bool dllAbort = false;
     {
