@@ -279,11 +279,16 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
                 return true;
             }
             if (slot == 0) { // QueryInterface
-                uint32_t thisPtr = 0u, ppv = 0u;
+                uint32_t thisPtr = 0u, pRiid = 0u, ppv = 0u, d1 = 0xFFFFFFFFu;
                 cpu->readGuestMemory(esp + 4,  &thisPtr, 4);
+                cpu->readGuestMemory(esp + 8,  &pRiid,   4);
                 cpu->readGuestMemory(esp + 12, &ppv,     4);
-                if (ppv >= 0x10000u) cpu->writeGuestMemory(ppv, &thisPtr, 4);
-                cpu->writeRegister(X86Reg::EAX, 0u);
+                if (pRiid >= 0x10000u) cpu->readGuestMemory(pRiid, &d1, 4);
+                bool ok = (iface == 0) ? (d1 == 0u || d1 == 0xBF798030u || d1 == 0xBF798031u)
+                                       : (d1 == 0u || d1 == 0x54D41080u || d1 == 0x54D41081u);
+                uint32_t out = ok ? thisPtr : 0u;
+                if (ppv >= 0x10000u) cpu->writeGuestMemory(ppv, &out, 4);
+                cpu->writeRegister(X86Reg::EAX, ok ? 0u : 0x80004002u);
                 cpu->writeRegister(X86Reg::ESP, esp + 16u);
                 outNextEip = returnAddr;
                 logSym(sym);
@@ -340,6 +345,13 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
                 logSym(sym);
                 return true;
             }
+            if (slot == 9 || slot == 10) { // EnumDevicesBySemantics / ConfigureDevices
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + (slot == 9 ? 28u : 24u));
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
         }
         if (iface == 1) { // IDirectInputDevice8 (COM stdcall)
             if (slot == 1 || slot == 2) { // AddRef / Release
@@ -350,11 +362,16 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
                 return true;
             }
             if (slot == 0) { // QueryInterface
-                uint32_t thisPtr = 0u, ppv = 0u;
+                uint32_t thisPtr = 0u, pRiid = 0u, ppv = 0u, d1 = 0xFFFFFFFFu;
                 cpu->readGuestMemory(esp + 4,  &thisPtr, 4);
+                cpu->readGuestMemory(esp + 8,  &pRiid,   4);
                 cpu->readGuestMemory(esp + 12, &ppv,     4);
-                if (ppv >= 0x10000u) cpu->writeGuestMemory(ppv, &thisPtr, 4);
-                cpu->writeRegister(X86Reg::EAX, 0u);
+                if (pRiid >= 0x10000u) cpu->readGuestMemory(pRiid, &d1, 4);
+                bool ok = (iface == 0) ? (d1 == 0u || d1 == 0xBF798030u || d1 == 0xBF798031u)
+                                       : (d1 == 0u || d1 == 0x54D41080u || d1 == 0x54D41081u);
+                uint32_t out = ok ? thisPtr : 0u;
+                if (ppv >= 0x10000u) cpu->writeGuestMemory(ppv, &out, 4);
+                cpu->writeRegister(X86Reg::EAX, ok ? 0u : 0x80004002u);
                 cpu->writeRegister(X86Reg::ESP, esp + 16u);
                 outNextEip = returnAddr;
                 logSym(sym);
