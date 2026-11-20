@@ -36,6 +36,156 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
     std::string sym = resolveAddress(thunkAddr);
     uint32_t esp = cpu->readRegister(X86Reg::ESP);
 
+    if (thunkAddr >= 0x7000B000u && thunkAddr < 0x7000B200u) {
+        uint32_t iface = (thunkAddr - 0x7000B000u) >> 8;
+        uint32_t slot  = ((thunkAddr - 0x7000B000u) & 0xFFu) >> 2;
+        if (iface == 0) { // IDirectInput8 (COM stdcall)
+            if (slot == 1 || slot == 2) { // AddRef / Release
+                cpu->writeRegister(X86Reg::EAX, (slot == 1) ? 2u : 1u);
+                cpu->writeRegister(X86Reg::ESP, esp + 8u);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 0) { // QueryInterface
+                uint32_t thisPtr = 0u, ppv = 0u;
+                cpu->readGuestMemory(esp + 4,  &thisPtr, 4);
+                cpu->readGuestMemory(esp + 12, &ppv,     4);
+                if (ppv >= 0x10000u) cpu->writeGuestMemory(ppv, &thisPtr, 4);
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 16u);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 3) { // CreateDevice(this, rguid, lplpDev, pUnkOuter)
+                uint32_t lplpDev = 0u;
+                cpu->readGuestMemory(esp + 12, &lplpDev, 4);
+                uint32_t vtAddr = allocGuest(32 * 4);
+                uint32_t devObj = allocGuest(16);
+                if (vtAddr != 0u && devObj != 0u) {
+                    uint32_t vt[32];
+                    for (uint32_t si = 0; si < 32; ++si) {
+                        vt[si] = 0x7000B100u + si * 4u;
+                        char vname[64];
+                        snprintf(vname, sizeof(vname), "IDirectInputDevice8::vslot[%u]", si);
+                        m_reverseMap[vt[si]] = vname;
+                    }
+                    cpu->writeGuestMemory(vtAddr, vt, sizeof(vt));
+                    cpu->writeGuestMemory(devObj, &vtAddr, 4);
+                    if (lplpDev >= 0x10000u) cpu->writeGuestMemory(lplpDev, &devObj, 4);
+                }
+                cpu->writeRegister(X86Reg::EAX, 0u); // DI_OK
+                cpu->writeRegister(X86Reg::ESP, esp + 20u);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 4) { // EnumDevices
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 24u);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 5) { // GetDeviceStatus
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 12u);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 6 || slot == 7) { // RunControlPanel / Initialize
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 16u);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 8) { // FindDevice
+                cpu->writeRegister(X86Reg::EAX, 0x80070002u);
+                cpu->writeRegister(X86Reg::ESP, esp + 20u);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+        }
+        if (iface == 1) { // IDirectInputDevice8 (COM stdcall)
+            if (slot == 1 || slot == 2) { // AddRef / Release
+                cpu->writeRegister(X86Reg::EAX, (slot == 1) ? 2u : 1u);
+                cpu->writeRegister(X86Reg::ESP, esp + 8u);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 0) { // QueryInterface
+                uint32_t thisPtr = 0u, ppv = 0u;
+                cpu->readGuestMemory(esp + 4,  &thisPtr, 4);
+                cpu->readGuestMemory(esp + 12, &ppv,     4);
+                if (ppv >= 0x10000u) cpu->writeGuestMemory(ppv, &thisPtr, 4);
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 16u);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 3 || slot == 11 || slot == 12 || slot == 15) { // GetCapabilities/SetDataFormat/SetEventNotification/GetDeviceInfo
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 12u);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 4 || slot == 14 || slot == 17) { // EnumObjects/GetObjectInfo/Initialize
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 20u);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 5 || slot == 6 || slot == 13 || slot == 16) { // GetProperty/SetProperty/SetCooperativeLevel/RunControlPanel
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 16u);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 7 || slot == 8 || slot == 25) { // Acquire / Unacquire / Poll
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 8u);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 9) { // GetDeviceState(this, cbData, lpvData)
+                uint32_t cbData = 0u, lpvData = 0u;
+                cpu->readGuestMemory(esp + 8,  &cbData,  4);
+                cpu->readGuestMemory(esp + 12, &lpvData, 4);
+                if (lpvData >= 0x10000u && cbData > 0u) {
+                    uint32_t n = (cbData > 4096u) ? 4096u : cbData;
+                    std::vector<uint8_t> z(n, 0u);
+                    cpu->writeGuestMemory(lpvData, z.data(), n);
+                }
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 16u);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 10) { // GetDeviceData(this, cbObj, rgdod, pdwInOut, dwFlags)
+                uint32_t pdwInOut = 0u;
+                cpu->readGuestMemory(esp + 16, &pdwInOut, 4);
+                if (pdwInOut >= 0x10000u) { uint32_t z = 0u; cpu->writeGuestMemory(pdwInOut, &z, 4); }
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 24u);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+        }
+        return false;
+    }
+
     if (thunkAddr >= 0x7000A000u && thunkAddr < 0x7000A800u) {
         uint32_t iface = (thunkAddr - 0x7000A000u) >> 8;
         uint32_t slot  = ((thunkAddr - 0x7000A000u) & 0xFFu) >> 2;
@@ -4830,6 +4980,36 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
     if (sym == "user32.dll!ToUnicodeEx") {
         cpu->writeRegister(X86Reg::EAX, 0u);
         cpu->writeRegister(X86Reg::ESP, esp + 32u); // stdcall (7 args)
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "dinput8.dll!DirectInput8Create" || sym == "dynamic!DirectInput8Create") {
+        uint32_t ppvOut = 0u;
+        cpu->readGuestMemory(esp + 16, &ppvOut, 4);
+        static uint32_t s_di8Obj = 0u;
+        uint32_t existingVt = 0u;
+        if (s_di8Obj != 0u) cpu->readGuestMemory(s_di8Obj, &existingVt, 4);
+        if (s_di8Obj == 0u || existingVt == 0u) {
+            uint32_t vtAddr = allocGuest(16 * 4);
+            uint32_t objAddr = allocGuest(16);
+            if (vtAddr != 0u && objAddr != 0u) {
+                uint32_t vt[16];
+                for (uint32_t si = 0; si < 16; ++si) {
+                    vt[si] = 0x7000B000u + si * 4u;
+                    char vname[64];
+                    snprintf(vname, sizeof(vname), "IDirectInput8::vslot[%u]", si);
+                    m_reverseMap[vt[si]] = vname;
+                }
+                cpu->writeGuestMemory(vtAddr, vt, sizeof(vt));
+                cpu->writeGuestMemory(objAddr, &vtAddr, 4);
+                s_di8Obj = objAddr;
+            }
+        }
+        if (ppvOut >= 0x10000u) cpu->writeGuestMemory(ppvOut, &s_di8Obj, 4);
+        cpu->writeRegister(X86Reg::EAX, 0u); // DI_OK
+        cpu->writeRegister(X86Reg::ESP, esp + 24u); // stdcall (5 args)
         outNextEip = returnAddr;
         logSym(sym);
         return true;
