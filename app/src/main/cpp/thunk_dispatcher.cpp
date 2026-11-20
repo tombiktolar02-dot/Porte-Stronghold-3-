@@ -36,6 +36,173 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
     std::string sym = resolveAddress(thunkAddr);
     uint32_t esp = cpu->readRegister(X86Reg::ESP);
 
+    if (thunkAddr >= 0x7000A000u && thunkAddr < 0x7000A800u) {
+        uint32_t iface = (thunkAddr - 0x7000A000u) >> 8;
+        uint32_t slot  = ((thunkAddr - 0x7000A000u) & 0xFFu) >> 2;
+        if (iface == 0) { // ISteamUser
+            if (slot == 0 || slot == 1) { // GetHSteamUser / BLoggedOn
+                cpu->writeRegister(X86Reg::EAX, 1u);
+                cpu->writeRegister(X86Reg::ESP, esp + 4);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 2) { // GetSteamID(CSteamID* sret)
+                uint32_t sretPtr = 0;
+                cpu->readGuestMemory(esp + 4, &sretPtr, 4);
+                uint64_t fakeId = 0x0110000100000001ULL;
+                if (sretPtr >= 0x10000u) cpu->writeGuestMemory(sretPtr, &fakeId, 8);
+                cpu->writeRegister(X86Reg::EAX, sretPtr);
+                cpu->writeRegister(X86Reg::ESP, esp + 8);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+        }
+        if (iface == 1) { // ISteamFriends
+            if (slot == 0) { // GetPersonaName
+                static uint32_t s_pName = 0;
+                uint8_t chk = 0;
+                if (s_pName != 0) cpu->readGuestMemory(s_pName, &chk, 1);
+                if (s_pName == 0 || chk != 0x50u) {
+                    const char nm[] = "Player";
+                    s_pName = allocGuest(sizeof(nm));
+                    if (s_pName != 0) cpu->writeGuestMemory(s_pName, nm, sizeof(nm));
+                }
+                cpu->writeRegister(X86Reg::EAX, s_pName);
+                cpu->writeRegister(X86Reg::ESP, esp + 4);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+        }
+        if (iface == 2) { // ISteamUtils
+            if (slot == 0 || slot == 1 || slot == 2) {
+                cpu->writeRegister(X86Reg::EAX, 1u);
+                cpu->writeRegister(X86Reg::ESP, esp + 4);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 3) { // GetServerRealTime
+                cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(time(nullptr)));
+                cpu->writeRegister(X86Reg::ESP, esp + 4);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 4) { // GetIPCountry
+                const char cc[] = "US";
+                uint32_t p = allocGuest(sizeof(cc));
+                if (p != 0) cpu->writeGuestMemory(p, cc, sizeof(cc));
+                cpu->writeRegister(X86Reg::EAX, p);
+                cpu->writeRegister(X86Reg::ESP, esp + 4);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 8) { // GetCurrentBatteryPower
+                cpu->writeRegister(X86Reg::EAX, 255u);
+                cpu->writeRegister(X86Reg::ESP, esp + 4);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 9) { // GetAppID (Stronghold 3 = 47400)
+                cpu->writeRegister(X86Reg::EAX, 47400u);
+                cpu->writeRegister(X86Reg::ESP, esp + 4);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 17) { // IsOverlayEnabled
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 4);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+        }
+        if (iface == 3) { // ISteamUserStats
+            if (slot == 0) { // RequestCurrentStats
+                cpu->writeRegister(X86Reg::EAX, 1u);
+                cpu->writeRegister(X86Reg::ESP, esp + 4);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+        }
+        if (iface == 4) { // ISteamApps
+            if (slot == 0) { // BIsSubscribed
+                cpu->writeRegister(X86Reg::EAX, 1u);
+                cpu->writeRegister(X86Reg::ESP, esp + 4);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 1 || slot == 2 || slot == 3) {
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 4);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 4 || slot == 5) { // GetCurrentGameLanguage / Available
+                const char lang[] = "english";
+                uint32_t p = allocGuest(sizeof(lang));
+                if (p != 0) cpu->writeGuestMemory(p, lang, sizeof(lang));
+                cpu->writeRegister(X86Reg::EAX, p);
+                cpu->writeRegister(X86Reg::ESP, esp + 4);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 6 || slot == 7) { // BIsSubscribedApp / BIsDlcInstalled
+                cpu->writeRegister(X86Reg::EAX, 1u);
+                cpu->writeRegister(X86Reg::ESP, esp + 8);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+        }
+        if (iface == 7) { // ISteamMatchmaking
+            if (slot == 0) { // GetFavoriteGameCount
+                cpu->writeRegister(X86Reg::EAX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 4);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 4) { // RequestLobbyList
+                cpu->writeRegister(X86Reg::EAX, 1u);
+                cpu->writeRegister(X86Reg::EDX, 0u);
+                cpu->writeRegister(X86Reg::ESP, esp + 4);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 5 || slot == 6) { // AddRequestLobbyListString/NumericalFilter
+                cpu->writeRegister(X86Reg::ESP, esp + 16);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 7) { // AddRequestLobbyListNearValueFilter
+                cpu->writeRegister(X86Reg::ESP, esp + 12);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+            if (slot == 8 || slot == 9 || slot == 10) {
+                cpu->writeRegister(X86Reg::ESP, esp + 8);
+                outNextEip = returnAddr;
+                logSym(sym);
+                return true;
+            }
+        }
+        return false;
+    }
+
     if (sym == "kernel32.dll!GetSystemTimeAsFileTime") {
         uint32_t lpFileTime = 0;
         cpu->readGuestMemory(esp + 4, &lpFileTime, 4);
@@ -2530,6 +2697,13 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
                     uint32_t vt[64];
                     for (uint32_t si = 0; si < 64; ++si) {
                         vt[si] = 0x7000A000u + static_cast<uint32_t>(steamIdx) * 0x100u + si * 4u;
+                        static const char* kSteamNames[8] = {
+                            "ISteamUser", "ISteamFriends", "ISteamUtils", "ISteamUserStats",
+                            "ISteamApps", "ISteamRemoteStorage", "ISteamNetworking", "ISteamMatchmaking"
+                        };
+                        char vname[64];
+                        snprintf(vname, sizeof(vname), "%s::vslot[%u]", kSteamNames[steamIdx], si);
+                        m_reverseMap[vt[si]] = vname;
                     }
                     cpu->writeGuestMemory(vtAddr, vt, sizeof(vt));
                     cpu->writeGuestMemory(objAddr, &vtAddr, 4);
