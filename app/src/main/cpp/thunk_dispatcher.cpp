@@ -23,6 +23,33 @@ std::string ThunkDispatcher::resolveAddress(uint32_t thunkAddr) const {
     return "UNKNOWN_THUNK";
 }
 
+alignas(4096) static uint8_t s_d3dxBufPage[65536] = {};
+static bool s_d3dxBufMapped = false;
+static uint32_t s_d3dxBufNext = 0x6D000040u;
+
+static uint32_t d3dxAllocBuffer(IX86CPU* cpu, const uint32_t* words, size_t wordCount) {
+    if (!s_d3dxBufMapped) {
+        for (uint32_t sl = 0; sl < 5u; ++sl) {
+            uint32_t trap = 0x7000D500u + (sl << 2);
+            memcpy(s_d3dxBufPage + (sl << 2), &trap, 4);
+        }
+        cpu->mapGuestMemory(0x6D000000u, sizeof(s_d3dxBufPage), s_d3dxBufPage);
+        s_d3dxBufMapped = true;
+    }
+    uint32_t byteSize = static_cast<uint32_t>(wordCount * 4u);
+    uint32_t slotSize = (16u + byteSize + 15u) & ~15u;
+    if (slotSize < 64u) slotSize = 64u;
+    if (s_d3dxBufNext + slotSize >= 0x6D00FF00u) s_d3dxBufNext = 0x6D000040u;
+    uint32_t obj = s_d3dxBufNext;
+    s_d3dxBufNext += slotSize;
+    uint32_t off = obj - 0x6D000000u;
+    uint32_t hdr[4] = { 0x6D000000u, obj + 16u, byteSize, 1u };
+    memcpy(s_d3dxBufPage + off, hdr, sizeof(hdr));
+    if (byteSize > 0u) memcpy(s_d3dxBufPage + off + 16u, words, byteSize);
+    cpu->writeGuestMemory(obj, s_d3dxBufPage + off, 16u + byteSize);
+    return obj;
+}
+
 alignas(4096) static uint8_t s_fmodPage[4096] = {};
 static bool s_fmodMapped = false;
 static uint32_t s_fmodNext = 0x6E000030u;
@@ -505,6 +532,41 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
             }
         }
         return false;
+    }
+
+    if (thunkAddr >= 0x7000D500u && thunkAddr < 0x7000D520u) {
+        uint32_t slot = (thunkAddr - 0x7000D500u) >> 2;
+        uint32_t thisPtr = 0u;
+        cpu->readGuestMemory(esp + 4, &thisPtr, 4);
+        if (slot == 0u) { // QueryInterface(this, riid, ppv)
+            uint32_t ppv = 0u;
+            cpu->readGuestMemory(esp + 12, &ppv, 4);
+            if (ppv >= 0x10000u) cpu->writeGuestMemory(ppv, &thisPtr, 4);
+            cpu->writeRegister(X86Reg::EAX, 0u);
+            cpu->writeRegister(X86Reg::ESP, esp + 16u);
+        } else if (slot == 1u) { // AddRef
+            cpu->writeRegister(X86Reg::EAX, 1u);
+            cpu->writeRegister(X86Reg::ESP, esp + 8u);
+        } else if (slot == 2u) { // Release
+            cpu->writeRegister(X86Reg::EAX, 0u);
+            cpu->writeRegister(X86Reg::ESP, esp + 8u);
+        } else if (slot == 3u) { // GetBufferPointer
+            uint32_t dataPtr = 0u;
+            if (thisPtr >= 0x6D000000u && thisPtr < 0x6D010000u) {
+                cpu->readGuestMemory(thisPtr + 4u, &dataPtr, 4);
+            }
+            cpu->writeRegister(X86Reg::EAX, dataPtr);
+            cpu->writeRegister(X86Reg::ESP, esp + 8u);
+        } else { // slot 4: GetBufferSize
+            uint32_t dataSize = 0u;
+            if (thisPtr >= 0x6D000000u && thisPtr < 0x6D010000u) {
+                cpu->readGuestMemory(thisPtr + 8u, &dataSize, 4);
+            }
+            cpu->writeRegister(X86Reg::EAX, dataSize);
+            cpu->writeRegister(X86Reg::ESP, esp + 8u);
+        }
+        outNextEip = returnAddr;
+        return true;
     }
 
     if (thunkAddr >= 0x7000D000u && thunkAddr < 0x7000D500u) {
@@ -6478,6 +6540,137 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->writeRegister(X86Reg::ESP, esp + 20u);
         outNextEip = returnAddr;
         logSym(sym);
+        return true;
+    }
+
+    if (sym == "d3dx9_43.dll!D3DXCompileShader") {
+        uint32_t pSrc = 0u, srcLen = 0u, pProf = 0u, ppShader = 0u, ppErr = 0u, ppConst = 0u;
+        cpu->readGuestMemory(esp + 4,  &pSrc,     4);
+        cpu->readGuestMemory(esp + 8,  &srcLen,   4);
+        cpu->readGuestMemory(esp + 24, &pProf,    4);
+        cpu->readGuestMemory(esp + 32, &ppShader, 4);
+        cpu->readGuestMemory(esp + 36, &ppErr,    4);
+        cpu->readGuestMemory(esp + 40, &ppConst,  4);
+        uint32_t zero = 0u;
+        if (ppErr   >= 0x10000u) cpu->writeGuestMemory(ppErr,   &zero, 4);
+        if (ppConst >= 0x10000u) cpu->writeGuestMemory(ppConst, &zero, 4);
+
+        std::string src;
+        if (pSrc >= 0x10000u && srcLen > 0u) {
+            uint32_t n = (srcLen > 4096u) ? 4096u : srcLen;
+            src.resize(n);
+            cpu->readGuestMemory(pSrc, &src[0], n);
+        }
+        char profBuf[16] = {};
+        if (pProf >= 0x10000u) cpu->readGuestMemory(pProf, profBuf, sizeof(profBuf) - 1);
+        bool isPS = (profBuf[0] == 'p' || profBuf[0] == 'P');
+
+        std::vector<uint32_t> bc;
+        if (!isPS) {
+            // Valid D3D9 SM 2.0 Vertex Shader (vs_2_0) matching Scaleform HLSL patterns
+            bool hasMvp    = (src.find("mvp[") != std::string::npos);
+            bool hasTexgen = (src.find("texgen[") != std::string::npos);
+            bool hasBgra   = (src.find(".bgra") != std::string::npos);
+            bc.push_back(0xFFFE0200u); // vs_2_0
+            bc.insert(bc.end(), {0x0200001Fu, 0x80000000u, 0x900F0000u}); // dcl_position v0
+            bc.insert(bc.end(), {0x0200001Fu, 0x80000005u, 0x900F0001u}); // dcl_texcoord0 v1
+            bc.insert(bc.end(), {0x0200001Fu, 0x80010005u, 0x900F0002u}); // dcl_texcoord1 v2
+            bc.insert(bc.end(), {0x0200001Fu, 0x8000000Au, 0x900F0003u}); // dcl_color0 v3
+            bc.insert(bc.end(), {0x0200001Fu, 0x8001000Au, 0x900F0004u}); // dcl_color1 v4
+            if (hasMvp) {
+                bc.insert(bc.end(), {0x02000001u, 0x800F0000u, 0x90E40000u});             // mov r0, v0
+                bc.insert(bc.end(), {0x03000009u, 0x80010000u, 0x90E40000u, 0xA0E40000u}); // dp4 r0.x, v0, c0
+                bc.insert(bc.end(), {0x03000009u, 0x80020000u, 0x90E40000u, 0xA0E40001u}); // dp4 r0.y, v0, c1
+                bc.insert(bc.end(), {0x02000001u, 0xC00F0000u, 0x80E40000u});             // mov oPos, r0
+            } else {
+                bc.insert(bc.end(), {0x02000001u, 0xC00F0000u, 0x90E40000u});             // mov oPos, v0
+            }
+            if (hasTexgen) {
+                bc.insert(bc.end(), {0x02000001u, 0x800F0001u, 0x90E40000u});             // mov r1, v0
+                bc.insert(bc.end(), {0x03000009u, 0x80010001u, 0x90E40000u, 0xA0E40004u}); // dp4 r1.x, v0, c4
+                bc.insert(bc.end(), {0x03000009u, 0x80020001u, 0x90E40000u, 0xA0E40005u}); // dp4 r1.y, v0, c5
+                bc.insert(bc.end(), {0x02000001u, 0xE00F0000u, 0x80E40001u});             // mov oT0, r1
+                bc.insert(bc.end(), {0x03000009u, 0x80010001u, 0x90E40000u, 0xA0E40006u}); // dp4 r1.x, v0, c6
+                bc.insert(bc.end(), {0x03000009u, 0x80020001u, 0x90E40000u, 0xA0E40007u}); // dp4 r1.y, v0, c7
+                bc.insert(bc.end(), {0x02000001u, 0xE00F0001u, 0x80E40001u});             // mov oT1, r1
+            } else {
+                bc.insert(bc.end(), {0x02000001u, 0xE00F0000u, 0x90E40001u});             // mov oT0, v1
+                bc.insert(bc.end(), {0x02000001u, 0xE00F0001u, 0x90E40002u});             // mov oT1, v2
+            }
+            bc.insert(bc.end(), {0x02000001u, 0xD00F0000u, hasBgra ? 0x90C60003u : 0x90E40003u}); // mov oD0, v3[.bgra]
+            bc.insert(bc.end(), {0x02000001u, 0xD00F0001u, 0x90E40004u});                         // mov oD1, v4
+            bc.push_back(0x0000FFFFu);
+        } else {
+            // Valid D3D9 SM 2.0 Pixel Shader (ps_2_0) matching Scaleform HLSL patterns
+            bool hasTex0   = (src.find("tex0") != std::string::npos);
+            bool hasTex1   = (src.find("tex1") != std::string::npos);
+            bool hasCxmul  = (src.find("cxmul") != std::string::npos);
+            bool hasLerpC  = (src.find("lerp (color") != std::string::npos || src.find("lerp(color") != std::string::npos);
+            bool hasFactA  = (src.find("factor.a") != std::string::npos);
+            bool hasPremul = (src.find("color * color.a") != std::string::npos);
+            bc.push_back(0xFFFF0200u); // ps_2_0
+            bc.insert(bc.end(), {0x0200001Fu, 0x80000000u, 0x900F0000u}); // dcl v0
+            bc.insert(bc.end(), {0x0200001Fu, 0x80000000u, 0x900F0001u}); // dcl v1
+            if (hasTex0) {
+                bc.insert(bc.end(), {0x0200001Fu, 0x80000000u, 0xB0030000u}); // dcl t0.xy
+                bc.insert(bc.end(), {0x0200001Fu, 0x90000000u, 0xA00F0800u}); // dcl_2d s0
+            }
+            if (hasTex1) {
+                bc.insert(bc.end(), {0x0200001Fu, 0x80000000u, 0xB0030001u}); // dcl t1.xy
+                bc.insert(bc.end(), {0x0200001Fu, 0x90000000u, 0xA00F0801u}); // dcl_2d s1
+            }
+            if (hasTex0 && hasTex1) {
+                bc.insert(bc.end(), {0x03000042u, 0x800F0000u, 0xB0E40000u, 0xA0E40800u});             // texld r0, t0, s0
+                bc.insert(bc.end(), {0x03000042u, 0x800F0001u, 0xB0E40001u, 0xA0E40801u});             // texld r1, t1, s1
+                bc.insert(bc.end(), {0x04000012u, 0x800F0000u, 0x90AA0001u, 0x80E40000u, 0x80E40001u}); // lrp r0, v1.b, r0, r1
+            } else if (hasTex0) {
+                bc.insert(bc.end(), {0x03000042u, 0x800F0000u, 0xB0E40000u, 0xA0E40800u});             // texld r0, t0, s0
+                if (hasLerpC) {
+                    bc.insert(bc.end(), {0x04000012u, 0x800F0000u, 0x90AA0001u, 0x80E40000u, 0x90E40000u}); // lrp r0, v1.b, r0, v0
+                }
+            } else {
+                bc.insert(bc.end(), {0x02000001u, 0x800F0000u, 0x90E40000u}); // mov r0, v0
+            }
+            if (hasCxmul) {
+                bc.insert(bc.end(), {0x04000004u, 0x800F0000u, 0x80E40000u, 0xA0E40002u, 0xA0E40003u}); // mad r0, r0, c2, c3
+            }
+            if (hasFactA) {
+                bc.insert(bc.end(), {0x03000005u, 0x80080000u, 0x80FF0000u, 0x90FF0001u}); // mul r0.w, r0.w, v1.w
+            }
+            if (hasPremul) {
+                bc.insert(bc.end(), {0x03000005u, 0x80070000u, 0x80E40000u, 0x80FF0000u}); // mul r0.xyz, r0, r0.w
+            }
+            bc.insert(bc.end(), {0x02000001u, 0x800F0800u, 0x80E40000u}); // mov oC0, r0
+            bc.push_back(0x0000FFFFu);
+        }
+
+        uint32_t bufObj = d3dxAllocBuffer(cpu, bc.data(), bc.size());
+        if (ppShader >= 0x10000u) cpu->writeGuestMemory(ppShader, &bufObj, 4);
+        cpu->writeRegister(X86Reg::EAX, 0u); // S_OK
+        cpu->writeRegister(X86Reg::ESP, esp + 44u); // stdcall: 10 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym + "(" + std::string(profBuf) + ")");
+        return true;
+    }
+
+    if (sym == "d3dx9_43.dll!D3DXLoadSurfaceFromMemory") {
+        cpu->writeRegister(X86Reg::EAX, 0u); // S_OK
+        cpu->writeRegister(X86Reg::ESP, esp + 44u); // stdcall: 10 args
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "d3dx9_43.dll!D3DXCreateTextureFromFileExA") {
+        uint32_t pFile = 0u, ppTex = 0u, zero = 0u;
+        cpu->readGuestMemory(esp + 8,  &pFile, 4);
+        cpu->readGuestMemory(esp + 56, &ppTex, 4);
+        if (ppTex >= 0x10000u) cpu->writeGuestMemory(ppTex, &zero, 4);
+        std::string fn = readCStr(pFile, 128);
+        cpu->writeRegister(X86Reg::EAX, 0x80004005u); // E_FAIL (safe skip if missing)
+        cpu->writeRegister(X86Reg::ESP, esp + 60u); // stdcall: 14 args
+        outNextEip = returnAddr;
+        m_handledLog.push_back(sym + "('" + fn + "')");
         return true;
     }
 
