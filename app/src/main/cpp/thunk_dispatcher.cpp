@@ -25,7 +25,7 @@ std::string ThunkDispatcher::resolveAddress(uint32_t thunkAddr) const {
 
 alignas(4096) static uint8_t s_d3dxBufPage[65536] = {};
 static bool s_d3dxBufMapped = false;
-static uint32_t s_d3dxBufNext = 0x6D000040u;
+static uint32_t s_d3dxBufNext = 0x6C000040u;
 
 static uint32_t d3dxAllocBuffer(IX86CPU* cpu, const uint32_t* words, size_t wordCount) {
     if (!s_d3dxBufMapped) {
@@ -33,17 +33,17 @@ static uint32_t d3dxAllocBuffer(IX86CPU* cpu, const uint32_t* words, size_t word
             uint32_t trap = 0x7000D500u + (sl << 2);
             memcpy(s_d3dxBufPage + (sl << 2), &trap, 4);
         }
-        cpu->mapGuestMemory(0x6D000000u, sizeof(s_d3dxBufPage), s_d3dxBufPage);
+        cpu->mapGuestMemory(0x6C000000u, sizeof(s_d3dxBufPage), s_d3dxBufPage);
         s_d3dxBufMapped = true;
     }
     uint32_t byteSize = static_cast<uint32_t>(wordCount * 4u);
     uint32_t slotSize = (16u + byteSize + 15u) & ~15u;
     if (slotSize < 64u) slotSize = 64u;
-    if (s_d3dxBufNext + slotSize >= 0x6D00FF00u) s_d3dxBufNext = 0x6D000040u;
+    if (s_d3dxBufNext + slotSize >= 0x6C00FF00u) s_d3dxBufNext = 0x6C000040u;
     uint32_t obj = s_d3dxBufNext;
     s_d3dxBufNext += slotSize;
-    uint32_t off = obj - 0x6D000000u;
-    uint32_t hdr[4] = { 0x6D000000u, obj + 16u, byteSize, 1u };
+    uint32_t off = obj - 0x6C000000u;
+    uint32_t hdr[4] = { 0x6C000000u, obj + 16u, byteSize, 1u };
     memcpy(s_d3dxBufPage + off, hdr, sizeof(hdr));
     if (byteSize > 0u) memcpy(s_d3dxBufPage + off + 16u, words, byteSize);
     cpu->writeGuestMemory(obj, s_d3dxBufPage + off, 16u + byteSize);
@@ -552,14 +552,14 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
             cpu->writeRegister(X86Reg::ESP, esp + 8u);
         } else if (slot == 3u) { // GetBufferPointer
             uint32_t dataPtr = 0u;
-            if (thisPtr >= 0x6D000000u && thisPtr < 0x6D010000u) {
+            if (thisPtr >= 0x6C000000u && thisPtr < 0x6C010000u) {
                 cpu->readGuestMemory(thisPtr + 4u, &dataPtr, 4);
             }
             cpu->writeRegister(X86Reg::EAX, dataPtr);
             cpu->writeRegister(X86Reg::ESP, esp + 8u);
         } else { // slot 4: GetBufferSize
             uint32_t dataSize = 0u;
-            if (thisPtr >= 0x6D000000u && thisPtr < 0x6D010000u) {
+            if (thisPtr >= 0x6C000000u && thisPtr < 0x6C010000u) {
                 cpu->readGuestMemory(thisPtr + 8u, &dataSize, 4);
             }
             cpu->writeRegister(X86Reg::EAX, dataSize);
