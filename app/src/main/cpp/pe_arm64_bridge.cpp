@@ -627,7 +627,7 @@ static std::string runStage5BootstrapProbe() {
         break; // Faulted or max steps reached
     }
 
-    char sbuf[256];
+    char sbuf[768];
     snprintf(sbuf, sizeof(sbuf),
              "Stage 6-A Loop: %s | TotalSteps: %llu | HLE Calls: %zu | StopEIP: 0x%08X\n",
              stepRes.reason.c_str(), static_cast<unsigned long long>(totalSteps), dispatcher.handledLog().size(), stepRes.stopAddress);
@@ -682,7 +682,7 @@ static std::string runStage5BootstrapProbe() {
         }
         i = j;
     }
-    size_t startIdx = (lines.size() > 14) ? (lines.size() - 14) : 0;
+    size_t startIdx = (lines.size() > 7) ? (lines.size() - 7) : 0;
     if (startIdx > 0) {
         out << "  ... (" << startIdx << " earlier HLE groups hidden) ...\n";
     }

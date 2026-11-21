@@ -329,8 +329,35 @@ private:
         uc_reg_read(uc, UC_X86_REG_EBP, &r_ebp); uc_reg_read(uc, UC_X86_REG_ESP, &r_esp);
         uint32_t r_eip=0; uc_reg_read(uc, UC_X86_REG_EIP, &r_eip);
         uint8_t op[8]={0}; uc_mem_read(uc, r_eip, op, 8);
-        char fbuf[256];
-        snprintf(fbuf, sizeof(fbuf), "UNMAPPED_MEM(addr=0x%08X) EIP=%08X OP=%02X%02X%02X%02X%02X%02X%02X%02X EAX=%08X ECX=%08X EDX=%08X ESI=%08X EDI=%08X", addr32, r_eip, op[0], op[1], op[2], op[3], op[4], op[5], op[6], op[7], r_eax, r_ecx, r_edx, r_esi, r_edi);
+        uint32_t f0[5] = {};
+        if (r_ebp >= 0x10000u && r_ebp < 0x7FF00000u) uc_mem_read(uc, r_ebp, f0, sizeof(f0));
+        uint32_t ret1 = f0[1], ret2 = 0, a1 = f0[2], a2 = f0[3], a3 = f0[4];
+        if (f0[0] >= 0x10000u && f0[0] < 0x7FF00000u) uc_mem_read(uc, f0[0] + 4u, &ret2, 4);
+        auto peekStr = [&](uint32_t ptr, char* dst, size_t cap) {
+            dst[0] = '\0';
+            if (ptr < 0x10000u || ptr > 0x7FF00000u) return;
+            char tmp[40] = {};
+            if (uc_mem_read(uc, ptr, tmp, sizeof(tmp) - 1) != UC_ERR_OK) return;
+            size_t n = 0;
+            while (n < cap - 1 && n < sizeof(tmp) - 1 && tmp[n] != '\0') {
+                unsigned char ch = static_cast<unsigned char>(tmp[n]);
+                if (ch == '\r' || ch == '\n' || ch == '\t') { dst[n++] = ' '; continue; }
+                if (ch < 32 || ch > 126) { dst[0] = '\0'; return; }
+                dst[n++] = static_cast<char>(ch);
+            }
+            dst[n] = '\0';
+            if (n < 2) dst[0] = '\0';
+        };
+        char str1[36] = {}, str2[36] = {}, str3[36] = {};
+        peekStr(a1, str1, sizeof(str1));
+        peekStr(a2, str2, sizeof(str2));
+        peekStr(a3, str3, sizeof(str3));
+        char fbuf[512];
+        snprintf(fbuf, sizeof(fbuf),
+                 "UNMAPPED_MEM(0x%08X) EIP=%08X OP=%02X%02X%02X%02X EAX=%08X ECX=%08X ESI=%08X EDI=%08X\n"
+                 "[FAULT CTX] EBP=%08X ESP=%08X RET=%08X RET2=%08X A1=%08X('%s') A2=%08X('%s') A3=%08X('%s')\n[STATS]",
+                 addr32, r_eip, op[0], op[1], op[2], op[3], r_eax, r_ecx, r_esi, r_edi,
+                 r_ebp, r_esp, ret1, ret2, a1, str1, a2, str2, a3, str3);
         self->m_faultReason = fbuf;
         LOGE("%s", fbuf);
         uc_emu_stop(uc);
