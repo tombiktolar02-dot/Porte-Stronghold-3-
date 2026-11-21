@@ -6674,6 +6674,42 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "kernel32.dll!CloseHandle") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!WaitForSingleObjectEx") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 16u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!SleepEx") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!DuplicateHandle") {
+        uint32_t hSrc = 0u, lpTgt = 0u;
+        cpu->readGuestMemory(esp + 8,  &hSrc,  4);
+        cpu->readGuestMemory(esp + 16, &lpTgt, 4);
+        if (lpTgt >= 0x10000u) cpu->writeGuestMemory(lpTgt, &hSrc, 4);
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 32u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
     if (sym == "gdi32.dll!GetDeviceCaps") {
         int32_t idx = 0;
         cpu->readGuestMemory(esp + 8, &idx, 4);
