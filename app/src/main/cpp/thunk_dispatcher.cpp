@@ -3801,10 +3801,51 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
-    if (sym == "msvcr100.dll!atof" || sym == "msvcr100.dll!strtod") {
+    if (sym == "vbase100.dll!__native_crc32") {
+        uint32_t crc = 0u, buf = 0u, len = 0u;
+        cpu->readGuestMemory(esp + 4, &crc, 4);
+        cpu->readGuestMemory(esp + 8, &buf, 4);
+        cpu->readGuestMemory(esp + 12, &len, 4);
+        if (buf == 0u) {
+            crc = 0u;
+        } else if (len > 0u) {
+            static uint32_t s_crcTbl[256];
+            static bool s_crcInit = false;
+            if (!s_crcInit) {
+                for (uint32_t i = 0; i < 256u; ++i) {
+                    uint32_t c = i;
+                    for (int k = 0; k < 8; ++k) c = (c & 1u) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+                    s_crcTbl[i] = c;
+                }
+                s_crcInit = true;
+            }
+            if (len > 256u * 1024u * 1024u) len = 256u * 1024u * 1024u;
+            crc = ~crc;
+            uint8_t chunk[16384];
+            uint32_t done = 0u;
+            while (done < len) {
+                uint32_t n = (len - done > sizeof(chunk)) ? static_cast<uint32_t>(sizeof(chunk)) : (len - done);
+                cpu->readGuestMemory(buf + done, chunk, n);
+                for (uint32_t i = 0; i < n; ++i) {
+                    crc = (crc >> 8) ^ s_crcTbl[(crc ^ chunk[i]) & 0xFFu];
+                }
+                done += n;
+            }
+            crc = ~crc;
+        }
+        cpu->writeRegister(X86Reg::EAX, crc);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!atof" || sym == "msvcr100.dll!strtod" ||
+        sym == "msvcr100.dll!_strtod_l" || sym == "msvcr100.dll!_atof_l") {
         uint32_t strPtr = 0, endPtrAddr = 0;
         cpu->readGuestMemory(esp + 4, &strPtr, 4);
-        if (sym == "msvcr100.dll!strtod") cpu->readGuestMemory(esp + 8, &endPtrAddr, 4);
+        if (sym == "msvcr100.dll!strtod" || sym == "msvcr100.dll!_strtod_l") {
+            cpu->readGuestMemory(esp + 8, &endPtrAddr, 4);
+        }
         std::string s = readGuestCStrLocal(strPtr);
         char* endHost = nullptr;
         double val = std::strtod(s.c_str(), &endHost);
@@ -3812,7 +3853,7 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
             uint32_t endGuest = strPtr + static_cast<uint32_t>(endHost - s.c_str());
             cpu->writeGuestMemory(endPtrAddr, &endGuest, 4);
         }
-        (void)val;
+        cpu->pushFpuDouble(val);
         cpu->writeRegister(X86Reg::ESP, esp + 4); // cdecl
         outNextEip = returnAddr;
         logSym(sym);

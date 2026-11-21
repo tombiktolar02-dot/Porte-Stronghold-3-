@@ -499,6 +499,22 @@ static std::string runStage5BootstrapProbe() {
     ThunkDispatcher dispatcher;
     initFastStubPage();
     cpu->mapGuestMemory(0x6D000000u, 4096u, g_fastStubPage);
+    {
+        auto vbIt = g_modIndex.find("vbase100.dll");
+        if (vbIt != g_modIndex.end()) {
+            uint32_t crcAddr = g_modules[vbIt->second].simBase + 0x1E7E0u;
+            uint8_t sig[11] = {};
+            const uint8_t expect[11] = {0x8B,0x4C,0x24,0x08,0x85,0xC9,0x75,0x03,0x33,0xC0,0xC3};
+            cpu->readGuestMemory(crcAddr, sig, sizeof(sig));
+            if (memcmp(sig, expect, sizeof(expect)) == 0) {
+                uint32_t crcThunk = getOrAllocNativeThunk("vbase100.dll", "__native_crc32");
+                int32_t rel = static_cast<int32_t>(crcThunk - (crcAddr + 5u));
+                uint8_t jmp[5] = { 0xE9, 0, 0, 0, 0 };
+                memcpy(jmp + 1, &rel, 4);
+                cpu->writeGuestMemory(crcAddr, jmp, sizeof(jmp));
+            }
+        }
+    }
     dispatcher.buildReverseMap(g_thunkTable);
     for (const auto& m : g_modules) {
         if (m.simBase != 0u) dispatcher.registerModule(m.name, m.simBase);
