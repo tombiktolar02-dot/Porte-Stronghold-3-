@@ -965,7 +965,8 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
                 std::string lowM;
                 for (char c : modName) lowM.push_back((c >= 65 && c <= 90) ? static_cast<char>(c + 32) : c);
                 if (lowM == "user32" || lowM == "user32.dll" || lowM == "gdi32" || lowM == "gdi32.dll" ||
-                    lowM == "d3d9" || lowM == "d3d9.dll" || lowM == "dinput8" || lowM == "dinput8.dll") {
+                    lowM == "d3d9" || lowM == "d3d9.dll" || lowM == "dinput8" || lowM == "dinput8.dll" || lowM == "kernel32" || lowM == "kernel32.dll" || lowM == "ntdll" || lowM == "ntdll.dll" || lowM == "advapi32" || lowM == "advapi32.dll") {
+                    if (lowM.find(".dll") == std::string::npos) lowM += ".dll";
                     hMod = getOrCreateVirtualModule(lowM);
                 } else {
                     auto vit = m_virtualModsByName.find(lowM);
@@ -5719,6 +5720,202 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         outNextEip = returnAddr;
         logSym(sym);
         return true;
+    }
+
+    if (sym == "kernel32.dll!FlsAlloc") {
+        uint32_t idx = m_nextTlsIndex++;
+        m_tlsSlots[idx] = 0u;
+        cpu->writeRegister(X86Reg::EAX, idx);
+        cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: 1 arg
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "kernel32.dll!FlsFree") {
+        uint32_t idx = 0; cpu->readGuestMemory(esp + 4, &idx, 4);
+        m_tlsSlots.erase(idx);
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "kernel32.dll!FlsGetValue") {
+        uint32_t idx = 0; cpu->readGuestMemory(esp + 4, &idx, 4);
+        auto it = m_tlsSlots.find(idx);
+        cpu->writeRegister(X86Reg::EAX, (it != m_tlsSlots.end()) ? it->second : 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "kernel32.dll!FlsSetValue") {
+        uint32_t idx = 0, val = 0;
+        cpu->readGuestMemory(esp + 4, &idx, 4);
+        cpu->readGuestMemory(esp + 8, &val, 4);
+        m_tlsSlots[idx] = val;
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "kernel32.dll!HeapSetInformation") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 20);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "kernel32.dll!InitializeCriticalSectionEx") {
+        uint32_t csPtr = 0; cpu->readGuestMemory(esp + 4, &csPtr, 4);
+        if (csPtr >= 0x10000u) { uint8_t z[24] = {}; cpu->writeGuestMemory(csPtr, z, sizeof(z)); }
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 16);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "kernel32.dll!SetHandleCount") {
+        uint32_t n = 0; cpu->readGuestMemory(esp + 4, &n, 4);
+        cpu->writeRegister(X86Reg::EAX, n);
+        cpu->writeRegister(X86Reg::ESP, esp + 8);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "kernel32.dll!GetStdHandle" || sym == "kernel32.dll!GetFileType") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "kernel32.dll!GetEnvironmentStringsW") {
+        uint32_t envPtr = allocGuest(32u);
+        const uint16_t envW[8] = {'P','A','T','H','=','.',0,0};
+        if (envPtr >= 0x10000u) cpu->writeGuestMemory(envPtr, envW, sizeof(envW));
+        cpu->writeRegister(X86Reg::EAX, envPtr);
+        cpu->writeRegister(X86Reg::ESP, esp + 4);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "kernel32.dll!FreeEnvironmentStringsW" || sym == "kernel32.dll!IsValidCodePage") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "kernel32.dll!GetCPInfo") {
+        uint32_t cpPtr = 0; cpu->readGuestMemory(esp + 8, &cpPtr, 4);
+        if (cpPtr >= 0x10000u) {
+            uint8_t info[20] = {};
+            info[0] = 1u; info[4] = '?';
+            cpu->writeGuestMemory(cpPtr, info, sizeof(info));
+        }
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "kernel32.dll!GetStringTypeW") {
+        uint32_t srcPtr = 0, dstPtr = 0; int32_t cch = 0;
+        cpu->readGuestMemory(esp + 8, &srcPtr, 4);
+        cpu->readGuestMemory(esp + 12, &cch, 4);
+        cpu->readGuestMemory(esp + 16, &dstPtr, 4);
+        if (srcPtr >= 0x10000u && dstPtr >= 0x10000u) {
+            if (cch < 0) {
+                cch = 0;
+                while (cch < 4095) {
+                    uint16_t w = 0; cpu->readGuestMemory(srcPtr + static_cast<uint32_t>(cch) * 2u, &w, 2);
+                    ++cch; if (w == 0) break;
+                }
+            }
+            if (cch > 4096) cch = 4096;
+            for (int32_t i = 0; i < cch; ++i) {
+                uint16_t w = 0, fl = 0;
+                cpu->readGuestMemory(srcPtr + static_cast<uint32_t>(i) * 2u, &w, 2);
+                if (w < 128u) {
+                    if (w >= 'A' && w <= 'Z') fl |= 0x0101u;
+                    if (w >= 'a' && w <= 'z') fl |= 0x0102u;
+                    if (w >= '0' && w <= '9') fl |= 0x0084u;
+                    if ((w >= 'A' && w <= 'F') || (w >= 'a' && w <= 'f')) fl |= 0x0080u;
+                    if (w == ' ' || w == '\t') fl |= 0x0048u;
+                    if (w == '\n' || w == '\r' || w == '\v' || w == '\f') fl |= 0x0008u;
+                    if (w < 0x20u || w == 0x7Fu) fl |= 0x0020u;
+                    if (fl == 0u && w > 0x20u) fl = 0x0010u;
+                }
+                cpu->writeGuestMemory(dstPtr + static_cast<uint32_t>(i) * 2u, &fl, 2);
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 20);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "kernel32.dll!LCMapStringW") {
+        uint32_t flags = 0, srcPtr = 0, dstPtr = 0; int32_t cchSrc = 0, cchDst = 0;
+        cpu->readGuestMemory(esp + 8, &flags, 4);
+        cpu->readGuestMemory(esp + 12, &srcPtr, 4);
+        cpu->readGuestMemory(esp + 16, &cchSrc, 4);
+        cpu->readGuestMemory(esp + 20, &dstPtr, 4);
+        cpu->readGuestMemory(esp + 24, &cchDst, 4);
+        if (cchSrc < 0 && srcPtr >= 0x10000u) {
+            cchSrc = 0;
+            while (cchSrc < 4095) {
+                uint16_t w = 0; cpu->readGuestMemory(srcPtr + static_cast<uint32_t>(cchSrc) * 2u, &w, 2);
+                ++cchSrc; if (w == 0) break;
+            }
+        }
+        if (cchSrc < 0) cchSrc = 0;
+        uint32_t ret = static_cast<uint32_t>(cchSrc);
+        if (cchDst > 0 && srcPtr >= 0x10000u && dstPtr >= 0x10000u) {
+            int32_t n = (cchSrc < cchDst) ? cchSrc : cchDst;
+            if (n > 4096) n = 4096;
+            for (int32_t i = 0; i < n; ++i) {
+                uint16_t w = 0; cpu->readGuestMemory(srcPtr + static_cast<uint32_t>(i) * 2u, &w, 2);
+                if ((flags & 0x100u) && w >= 'A' && w <= 'Z') w += 32u;
+                else if ((flags & 0x200u) && w >= 'a' && w <= 'z') w -= 32u;
+                cpu->writeGuestMemory(dstPtr + static_cast<uint32_t>(i) * 2u, &w, 2);
+            }
+            ret = static_cast<uint32_t>(n);
+        }
+        cpu->writeRegister(X86Reg::EAX, ret);
+        cpu->writeRegister(X86Reg::ESP, esp + 28);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "kernel32.dll!WriteFile") {
+        uint32_t nBytes = 0, wrPtr = 0;
+        cpu->readGuestMemory(esp + 12, &nBytes, 4);
+        cpu->readGuestMemory(esp + 16, &wrPtr, 4);
+        if (wrPtr >= 0x10000u) cpu->writeGuestMemory(wrPtr, &nBytes, 4);
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 24);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "kernel32.dll!DebugBreak" || sym == "user32.dll!GetProcessWindowStation" ||
+        sym == "user32.dll!GetActiveWindow") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 4);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "user32.dll!GetLastActivePopup") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "user32.dll!GetUserObjectInformationW" || sym == "user32.dll!GetUserObjectInformationA") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 24);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "user32.dll!MessageBoxW") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 20);
+        outNextEip = returnAddr; logSym(sym); return true;
+    }
+
+    if (sym == "kernel32.dll!RtlUnwind") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 20);
+        outNextEip = returnAddr; logSym(sym); return true;
     }
 
     if (sym == "dinput8.dll!DirectInput8Create" || sym == "dynamic!DirectInput8Create") {
