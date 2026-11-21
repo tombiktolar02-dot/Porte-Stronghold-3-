@@ -6875,6 +6875,308 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "msvcr100.dll!strncpy_s") {
+        uint32_t dst = 0u, dstSize = 0u, src = 0u, count = 0u;
+        cpu->readGuestMemory(esp + 4,  &dst,     4);
+        cpu->readGuestMemory(esp + 8,  &dstSize, 4);
+        cpu->readGuestMemory(esp + 12, &src,     4);
+        cpu->readGuestMemory(esp + 16, &count,   4);
+        uint32_t ret = 0u;
+        if (dst < 0x10000u || dstSize == 0u) {
+            ret = 22u; // EINVAL
+        } else if (src < 0x10000u) {
+            uint8_t z = 0u;
+            cpu->writeGuestMemory(dst, &z, 1);
+            ret = (count == 0u) ? 0u : 22u;
+        } else {
+            bool trunc = (count == 0xFFFFFFFFu);
+            uint32_t maxCopy = trunc ? (dstSize - 1u) : ((count < dstSize - 1u) ? count : (dstSize - 1u));
+            if (maxCopy > 65535u) maxCopy = 65535u;
+            std::vector<uint8_t> out;
+            out.reserve((maxCopy < 256u ? maxCopy : 256u) + 1u);
+            uint32_t i = 0u;
+            for (; i < maxCopy; ++i) {
+                uint8_t ch = 0u;
+                if (!cpu->readGuestMemory(src + i, &ch, 1) || ch == 0u) break;
+                out.push_back(ch);
+            }
+            out.push_back(0u);
+            cpu->writeGuestMemory(dst, out.data(), out.size());
+            if (i == maxCopy) {
+                uint8_t nextCh = 0u;
+                if (cpu->readGuestMemory(src + i, &nextCh, 1) && nextCh != 0u) {
+                    if (trunc) {
+                        ret = 80u; // STRUNCATE
+                    } else if (count >= dstSize) {
+                        uint8_t z = 0u;
+                        cpu->writeGuestMemory(dst, &z, 1);
+                        ret = 34u; // ERANGE
+                    }
+                }
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, ret);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        if (m_handledLog.empty() || m_handledLog.back() != sym) logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!strncat_s") {
+        uint32_t dst = 0u, dstSize = 0u, src = 0u, count = 0u;
+        cpu->readGuestMemory(esp + 4,  &dst,     4);
+        cpu->readGuestMemory(esp + 8,  &dstSize, 4);
+        cpu->readGuestMemory(esp + 12, &src,     4);
+        cpu->readGuestMemory(esp + 16, &count,   4);
+        uint32_t ret = 0u;
+        if (dst < 0x10000u || dstSize == 0u || (src < 0x10000u && count != 0u)) {
+            ret = 22u;
+        } else {
+            uint32_t cur = 0u;
+            while (cur < dstSize) {
+                uint8_t ch = 0u;
+                if (!cpu->readGuestMemory(dst + cur, &ch, 1) || ch == 0u) break;
+                ++cur;
+            }
+            if (cur >= dstSize) {
+                ret = 22u;
+            } else {
+                bool trunc = (count == 0xFFFFFFFFu);
+                uint32_t avail = dstSize - 1u - cur;
+                uint32_t maxCopy = trunc ? avail : ((count < avail) ? count : avail);
+                if (maxCopy > 65535u) maxCopy = 65535u;
+                std::vector<uint8_t> out;
+                uint32_t i = 0u;
+                for (; i < maxCopy; ++i) {
+                    uint8_t ch = 0u;
+                    if (!cpu->readGuestMemory(src + i, &ch, 1) || ch == 0u) break;
+                    out.push_back(ch);
+                }
+                out.push_back(0u);
+                cpu->writeGuestMemory(dst + cur, out.data(), out.size());
+                if (i == maxCopy && src >= 0x10000u) {
+                    uint8_t nextCh = 0u;
+                    if (cpu->readGuestMemory(src + i, &nextCh, 1) && nextCh != 0u) {
+                        if (trunc) ret = 80u;
+                        else if (count > avail) ret = 34u;
+                    }
+                }
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, ret);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
+        outNextEip = returnAddr;
+        if (m_handledLog.empty() || m_handledLog.back() != sym) logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!wcsncpy_s") {
+        uint32_t dst = 0u, dstElems = 0u, src = 0u, count = 0u;
+        cpu->readGuestMemory(esp + 4,  &dst,      4);
+        cpu->readGuestMemory(esp + 8,  &dstElems, 4);
+        cpu->readGuestMemory(esp + 12, &src,      4);
+        cpu->readGuestMemory(esp + 16, &count,    4);
+        uint32_t ret = 0u;
+        if (dst < 0x10000u || dstElems == 0u) {
+            ret = 22u;
+        } else if (src < 0x10000u) {
+            uint16_t z = 0u;
+            cpu->writeGuestMemory(dst, &z, 2);
+            ret = (count == 0u) ? 0u : 22u;
+        } else {
+            bool trunc = (count == 0xFFFFFFFFu);
+            uint32_t maxCopy = trunc ? (dstElems - 1u) : ((count < dstElems - 1u) ? count : (dstElems - 1u));
+            if (maxCopy > 32767u) maxCopy = 32767u;
+            std::vector<uint16_t> out;
+            uint32_t i = 0u;
+            for (; i < maxCopy; ++i) {
+                uint16_t wc = 0u;
+                if (!cpu->readGuestMemory(src + i * 2u, &wc, 2) || wc == 0u) break;
+                out.push_back(wc);
+            }
+            out.push_back(0u);
+            cpu->writeGuestMemory(dst, out.data(), out.size() * 2u);
+            if (i == maxCopy) {
+                uint16_t nextWc = 0u;
+                if (cpu->readGuestMemory(src + i * 2u, &nextWc, 2) && nextWc != 0u) {
+                    if (trunc) ret = 80u;
+                    else if (count >= dstElems) ret = 34u;
+                }
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, ret);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
+        outNextEip = returnAddr;
+        if (m_handledLog.empty() || m_handledLog.back() != sym) logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!wcscpy_s") {
+        uint32_t dst = 0u, dstElems = 0u, src = 0u;
+        cpu->readGuestMemory(esp + 4,  &dst,      4);
+        cpu->readGuestMemory(esp + 8,  &dstElems, 4);
+        cpu->readGuestMemory(esp + 12, &src,      4);
+        uint32_t ret = 0u;
+        if (dst < 0x10000u || dstElems == 0u || src < 0x10000u) {
+            ret = 22u;
+        } else {
+            uint32_t maxCopy = dstElems - 1u;
+            if (maxCopy > 32767u) maxCopy = 32767u;
+            std::vector<uint16_t> out;
+            uint32_t i = 0u;
+            for (; i < maxCopy; ++i) {
+                uint16_t wc = 0u;
+                if (!cpu->readGuestMemory(src + i * 2u, &wc, 2) || wc == 0u) break;
+                out.push_back(wc);
+            }
+            out.push_back(0u);
+            cpu->writeGuestMemory(dst, out.data(), out.size() * 2u);
+        }
+        cpu->writeRegister(X86Reg::EAX, ret);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
+        outNextEip = returnAddr;
+        if (m_handledLog.empty() || m_handledLog.back() != sym) logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!wcscat_s") {
+        uint32_t dst = 0u, dstElems = 0u, src = 0u;
+        cpu->readGuestMemory(esp + 4,  &dst,      4);
+        cpu->readGuestMemory(esp + 8,  &dstElems, 4);
+        cpu->readGuestMemory(esp + 12, &src,      4);
+        uint32_t ret = 0u;
+        if (dst < 0x10000u || dstElems == 0u || src < 0x10000u) {
+            ret = 22u;
+        } else {
+            uint32_t cur = 0u;
+            while (cur < dstElems) {
+                uint16_t wc = 0u;
+                if (!cpu->readGuestMemory(dst + cur * 2u, &wc, 2) || wc == 0u) break;
+                ++cur;
+            }
+            if (cur >= dstElems) {
+                ret = 22u;
+            } else {
+                uint32_t rem = dstElems - 1u - cur;
+                if (rem > 32767u) rem = 32767u;
+                std::vector<uint16_t> out;
+                for (uint32_t i = 0u; i < rem; ++i) {
+                    uint16_t wc = 0u;
+                    if (!cpu->readGuestMemory(src + i * 2u, &wc, 2) || wc == 0u) break;
+                    out.push_back(wc);
+                }
+                out.push_back(0u);
+                cpu->writeGuestMemory(dst + cur * 2u, out.data(), out.size() * 2u);
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, ret);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
+        outNextEip = returnAddr;
+        if (m_handledLog.empty() || m_handledLog.back() != sym) logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_strlwr_s" || sym == "msvcr100.dll!_strupr_s") {
+        uint32_t dst = 0u, dstSize = 0u;
+        cpu->readGuestMemory(esp + 4, &dst,     4);
+        cpu->readGuestMemory(esp + 8, &dstSize, 4);
+        bool toUp = (sym == "msvcr100.dll!_strupr_s");
+        uint32_t ret = 0u;
+        if (dst < 0x10000u || dstSize == 0u) {
+            ret = 22u;
+        } else {
+            uint32_t lim = (dstSize > 65536u) ? 65536u : dstSize;
+            for (uint32_t i = 0u; i < lim; ++i) {
+                uint8_t ch = 0u;
+                if (!cpu->readGuestMemory(dst + i, &ch, 1) || ch == 0u) break;
+                uint8_t nch = ch;
+                if (!toUp && ch >= 'A' && ch <= 'Z') nch = ch + 32u;
+                else if (toUp && ch >= 'a' && ch <= 'z') nch = ch - 32u;
+                if (nch != ch) cpu->writeGuestMemory(dst + i, &nch, 1);
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, ret);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
+        outNextEip = returnAddr;
+        if (m_handledLog.empty() || m_handledLog.back() != sym) logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!_itoa_s" || sym == "msvcr100.dll!_ltoa_s" || sym == "msvcr100.dll!_ultoa_s") {
+        uint32_t rawVal = 0u, buf = 0u, bufSize = 0u, radix = 10u;
+        cpu->readGuestMemory(esp + 4,  &rawVal,  4);
+        cpu->readGuestMemory(esp + 8,  &buf,     4);
+        cpu->readGuestMemory(esp + 12, &bufSize, 4);
+        cpu->readGuestMemory(esp + 16, &radix,   4);
+        uint32_t ret = 0u;
+        if (buf < 0x10000u || bufSize == 0u || radix < 2u || radix > 36u) {
+            ret = 22u;
+        } else {
+            bool isSigned = (sym != "msvcr100.dll!_ultoa_s") && (radix == 10u) && (static_cast<int32_t>(rawVal) < 0);
+            uint32_t u = isSigned ? static_cast<uint32_t>(-static_cast<int32_t>(rawVal)) : rawVal;
+            const char* digits = "0123456789abcdefghijklmnopqrstuvwxyz";
+            std::string tmp;
+            if (u == 0u) tmp.push_back('0');
+            else {
+                while (u > 0u) { tmp.push_back(digits[u % radix]); u /= radix; }
+                if (isSigned) tmp.push_back('-');
+                for (size_t a = 0, b = tmp.size() - 1; a < b; ++a, --b) { char t = tmp[a]; tmp[a] = tmp[b]; tmp[b] = t; }
+            }
+            if (tmp.size() + 1u > bufSize) {
+                uint8_t z = 0u;
+                cpu->writeGuestMemory(buf, &z, 1);
+                ret = 34u;
+            } else {
+                cpu->writeGuestMemory(buf, tmp.c_str(), tmp.size() + 1u);
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, ret);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
+        outNextEip = returnAddr;
+        if (m_handledLog.empty() || m_handledLog.back() != sym) logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!strnlen") {
+        uint32_t str = 0u, maxLen = 0u;
+        cpu->readGuestMemory(esp + 4, &str,    4);
+        cpu->readGuestMemory(esp + 8, &maxLen, 4);
+        uint32_t n = 0u;
+        if (str >= 0x10000u) {
+            uint32_t lim = (maxLen > 1048576u) ? 1048576u : maxLen;
+            while (n < lim) {
+                uint8_t ch = 0u;
+                if (!cpu->readGuestMemory(str + n, &ch, 1) || ch == 0u) break;
+                ++n;
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, n);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
+        outNextEip = returnAddr;
+        if (m_handledLog.empty() || m_handledLog.back() != sym) logSym(sym);
+        return true;
+    }
+
+    if (sym == "msvcr100.dll!wcsnlen") {
+        uint32_t str = 0u, maxLen = 0u;
+        cpu->readGuestMemory(esp + 4, &str,    4);
+        cpu->readGuestMemory(esp + 8, &maxLen, 4);
+        uint32_t n = 0u;
+        if (str >= 0x10000u) {
+            uint32_t lim = (maxLen > 524288u) ? 524288u : maxLen;
+            while (n < lim) {
+                uint16_t wc = 0u;
+                if (!cpu->readGuestMemory(str + n * 2u, &wc, 2) || wc == 0u) break;
+                ++n;
+            }
+        }
+        cpu->writeRegister(X86Reg::EAX, n);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u);
+        outNextEip = returnAddr;
+        if (m_handledLog.empty() || m_handledLog.back() != sym) logSym(sym);
+        return true;
+    }
+
     if (sym == "gdi32.dll!GetDeviceCaps") {
         int32_t idx = 0;
         cpu->readGuestMemory(esp + 8, &idx, 4);
