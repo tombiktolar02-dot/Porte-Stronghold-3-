@@ -6477,9 +6477,16 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         int32_t idx = 0;
         cpu->readGuestMemory(esp + 8, &idx, 4);
         int32_t val = 0;
-        if (idx == 8) val = 1280; else if (idx == 10) val = 720;
-        else if (idx == 12) val = 32; else if (idx == 14) val = 1;
-        else if (idx == 88 || idx == 90) val = 96; else if (idx == 116) val = 60;
+        if (idx == 4) val = 480;         // HORZSIZE (mm, 16:9)
+        else if (idx == 6) val = 270;    // VERTSIZE (mm, 16:9)
+        else if (idx == 8 || idx == 118) val = 1280; // HORZRES / DESKTOPHORZRES
+        else if (idx == 10 || idx == 117) val = 720; // VERTRES / DESKTOPVERTRES
+        else if (idx == 12) val = 32;    // BITSPIXEL
+        else if (idx == 14) val = 1;     // PLANES
+        else if (idx == 40 || idx == 42) val = 36;   // ASPECTX / ASPECTY
+        else if (idx == 44) val = 51;    // ASPECTXY
+        else if (idx == 88 || idx == 90) val = 96;   // LOGPIXELSX / LOGPIXELSY
+        else if (idx == 116) val = 60;   // VREFRESH
         cpu->writeRegister(X86Reg::EAX, static_cast<uint32_t>(val));
         cpu->writeRegister(X86Reg::ESP, esp + 12u); // stdcall (2 args)
         outNextEip = returnAddr;

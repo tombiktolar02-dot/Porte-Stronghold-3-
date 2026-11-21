@@ -294,6 +294,21 @@ private:
             self->m_int3Hit = true;
             LOGI("Skipped INT 3 (0xCC), resuming at EIP=0x%08X", eip);
             uc_emu_stop(uc);
+        } else {
+            uint32_t eip = 0, eax = 0, ecx = 0, edx = 0;
+            uc_reg_read(uc, UC_X86_REG_EIP, &eip);
+            uc_reg_read(uc, UC_X86_REG_EAX, &eax);
+            uc_reg_read(uc, UC_X86_REG_ECX, &ecx);
+            uc_reg_read(uc, UC_X86_REG_EDX, &edx);
+            uint8_t op[4] = {};
+            uc_mem_read(uc, eip, op, 4);
+            char ibuf[192];
+            snprintf(ibuf, sizeof(ibuf), "CPU_INTR(int=%u) EIP=%08X OP=%02X%02X%02X%02X EAX=%08X ECX=%08X EDX=%08X",
+                     intno, eip, op[0], op[1], op[2], op[3], eax, ecx, edx);
+            self->m_faulted = true;
+            self->m_faultReason = ibuf;
+            LOGE("%s", ibuf);
+            uc_emu_stop(uc);
         }
     }
 
