@@ -6710,6 +6710,171 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "msvcr100.dll!iswspace" || sym == "msvcr100.dll!_iswspace_l" || sym == "msvcr100.dll!iswalpha" || sym == "msvcr100.dll!_iswalpha_l" || sym == "msvcr100.dll!iswalnum" || sym == "msvcr100.dll!_iswalnum_l" || sym == "msvcr100.dll!iswdigit" || sym == "msvcr100.dll!_iswdigit_l" || sym == "msvcr100.dll!iswxdigit" || sym == "msvcr100.dll!_iswxdigit_l" || sym == "msvcr100.dll!iswupper" || sym == "msvcr100.dll!_iswupper_l" || sym == "msvcr100.dll!iswlower" || sym == "msvcr100.dll!_iswlower_l" || sym == "msvcr100.dll!iswpunct" || sym == "msvcr100.dll!_iswpunct_l" || sym == "msvcr100.dll!iswprint" || sym == "msvcr100.dll!_iswprint_l" || sym == "msvcr100.dll!iswgraph" || sym == "msvcr100.dll!_iswgraph_l" || sym == "msvcr100.dll!iswcntrl" || sym == "msvcr100.dll!_iswcntrl_l" || sym == "msvcr100.dll!iswascii" || sym == "msvcr100.dll!iswctype" || sym == "msvcr100.dll!_iswctype_l" || sym == "msvcr100.dll!_towlower_l" || sym == "msvcr100.dll!_towupper_l") {
+        uint32_t wc = 0u;
+        cpu->readGuestMemory(esp + 4, &wc, 4);
+        wc &= 0xFFFFu;
+        auto isWUpper = [](uint32_t c) { return (c >= 'A' && c <= 'Z') || (c >= 0xC0u && c <= 0xDEu && c != 0xD7u); };
+        auto isWLower = [](uint32_t c) { return (c >= 'a' && c <= 'z') || (c >= 0xDFu && c <= 0xFFu && c != 0xF7u); };
+        auto isWDigit = [](uint32_t c) { return (c >= '0' && c <= '9'); };
+        auto isWSpace = [](uint32_t c) { return (c == 0x20u || (c >= 0x09u && c <= 0x0Du) || c == 0xA0u || c == 0xFEFFu || c == 0x3000u); };
+        auto isWXDig  = [](uint32_t c) { return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f'); };
+        auto isWCntrl = [](uint32_t c) { return (c < 0x20u || c == 0x7Fu || (c >= 0x80u && c <= 0x9Fu)); };
+        auto isWPrint = [&](uint32_t c) { return !isWCntrl(c) && c != 0xFFFFu; };
+        auto isWAlpha = [&](uint32_t c) { return isWUpper(c) || isWLower(c) || (c >= 0x0100u && !isWSpace(c) && c != 0xFFFFu); };
+        auto isWAlnum = [&](uint32_t c) { return isWAlpha(c) || isWDigit(c); };
+        auto isWPunct = [&](uint32_t c) { return isWPrint(c) && !isWSpace(c) && !isWAlnum(c); };
+
+        uint32_t res = 0u;
+        if (sym.find("iswspace") != std::string::npos)       res = isWSpace(wc) ? 8u : 0u;
+        else if (sym.find("iswalpha") != std::string::npos)  res = isWAlpha(wc) ? 0x0103u : 0u;
+        else if (sym.find("iswalnum") != std::string::npos)  res = isWAlnum(wc) ? 0x0107u : 0u;
+        else if (sym.find("iswdigit") != std::string::npos)  res = isWDigit(wc) ? 4u : 0u;
+        else if (sym.find("iswxdigit") != std::string::npos) res = isWXDig(wc)  ? 0x80u : 0u;
+        else if (sym.find("iswupper") != std::string::npos)  res = isWUpper(wc) ? 1u : 0u;
+        else if (sym.find("iswlower") != std::string::npos)  res = isWLower(wc) ? 2u : 0u;
+        else if (sym.find("iswpunct") != std::string::npos)  res = isWPunct(wc) ? 0x10u : 0u;
+        else if (sym.find("iswprint") != std::string::npos)  res = isWPrint(wc) ? 0x0157u : 0u;
+        else if (sym.find("iswgraph") != std::string::npos)  res = (isWPrint(wc) && !isWSpace(wc)) ? 0x0117u : 0u;
+        else if (sym.find("iswcntrl") != std::string::npos)  res = isWCntrl(wc) ? 0x20u : 0u;
+        else if (sym.find("iswascii") != std::string::npos)  res = (wc < 0x80u) ? 1u : 0u;
+        else if (sym.find("towlower") != std::string::npos)  res = isWUpper(wc) ? (wc + 32u) : wc;
+        else if (sym.find("towupper") != std::string::npos)  res = (wc >= 'a' && wc <= 'z') ? (wc - 32u) : ((wc >= 0xE0u && wc <= 0xFEu && wc != 0xF7u) ? (wc - 32u) : wc);
+        else if (sym.find("iswctype") != std::string::npos) {
+            uint32_t desc = 0u;
+            cpu->readGuestMemory(esp + 8, &desc, 4);
+            uint32_t mask = (isWUpper(wc) ? 1u : 0u) | (isWLower(wc) ? 2u : 0u) | (isWDigit(wc) ? 4u : 0u) |
+                            (isWSpace(wc) ? 8u : 0u) | (isWPunct(wc) ? 0x10u : 0u) | (isWCntrl(wc) ? 0x20u : 0u) |
+                            ((wc == 0x20u || wc == 0x09u) ? 0x40u : 0u) | (isWXDig(wc) ? 0x80u : 0u) | (isWAlpha(wc) ? 0x0100u : 0u);
+            res = mask & desc;
+        }
+        cpu->writeRegister(X86Reg::EAX, res);
+        cpu->writeRegister(X86Reg::ESP, esp + 4u); // cdecl
+        outNextEip = returnAddr;
+        if (m_handledLog.empty() || m_handledLog.back() != sym) logSym(sym);
+        return true;
+    }
+
+    if (sym == "imm32.dll!ImmGetContext" || sym == "dynamic!ImmGetContext") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "imm32.dll!ImmReleaseContext" || sym == "dynamic!ImmReleaseContext") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "imm32.dll!ImmGetCompositionStringA" || sym == "dynamic!ImmGetCompositionStringA") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 20u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "imm32.dll!ImmGetCompositionStringW" || sym == "dynamic!ImmGetCompositionStringW") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 20u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "imm32.dll!ImmIsUIMessageA" || sym == "dynamic!ImmIsUIMessageA") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 20u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "imm32.dll!ImmIsUIMessageW" || sym == "dynamic!ImmIsUIMessageW") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 20u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "imm32.dll!ImmGetDefaultIMEWnd" || sym == "dynamic!ImmGetDefaultIMEWnd") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "imm32.dll!ImmAssociateContext" || sym == "dynamic!ImmAssociateContext") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "imm32.dll!ImmNotifyIME" || sym == "dynamic!ImmNotifyIME") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 20u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "imm32.dll!ImmGetCandidateListA" || sym == "dynamic!ImmGetCandidateListA") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 20u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "imm32.dll!ImmGetCandidateListW" || sym == "dynamic!ImmGetCandidateListW") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 20u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "imm32.dll!ImmSetCompositionWindow" || sym == "dynamic!ImmSetCompositionWindow") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "imm32.dll!ImmSetCandidateWindow" || sym == "dynamic!ImmSetCandidateWindow") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "imm32.dll!ImmGetOpenStatus" || sym == "dynamic!ImmGetOpenStatus") {
+        cpu->writeRegister(X86Reg::EAX, 0u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "imm32.dll!ImmSetOpenStatus" || sym == "dynamic!ImmSetOpenStatus") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
     if (sym == "gdi32.dll!GetDeviceCaps") {
         int32_t idx = 0;
         cpu->readGuestMemory(esp + 8, &idx, 4);
