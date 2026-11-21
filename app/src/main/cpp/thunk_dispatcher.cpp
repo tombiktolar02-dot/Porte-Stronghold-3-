@@ -1754,6 +1754,102 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "kernel32.dll!GetLocaleInfoA" || sym == "kernel32.dll!GetLocaleInfoW") {
+        uint32_t locale = 0u, lcType = 0u, pData = 0u, cchData = 0u;
+        cpu->readGuestMemory(esp + 4,  &locale,  4);
+        cpu->readGuestMemory(esp + 8,  &lcType,  4);
+        cpu->readGuestMemory(esp + 12, &pData,   4);
+        cpu->readGuestMemory(esp + 16, &cchData, 4);
+
+        const bool isWide = (sym == "kernel32.dll!GetLocaleInfoW");
+        const bool retNum = (lcType & 0x20000000u) != 0u;
+        const uint32_t baseType = lcType & 0xFFFFu;
+
+        std::string val = "";
+        uint32_t numVal = 0u;
+        switch (baseType) {
+            case 0x0001u: val = "0409"; numVal = 0x0409u; break;
+            case 0x0002u: val = "English (United States)"; break;
+            case 0x0003u: val = "ENU"; break;
+            case 0x0004u: val = "English"; break;
+            case 0x0005u: val = "1"; numVal = 1u; break;
+            case 0x0006u: val = "United States"; break;
+            case 0x0007u: val = "USA"; break;
+            case 0x000Bu: val = "1252"; numVal = 1252u; break;
+            case 0x000Cu: val = ","; break;
+            case 0x000Du: val = "1"; numVal = 1u; break;
+            case 0x000Eu: val = "."; break;
+            case 0x000Fu: val = ","; break;
+            case 0x0010u: val = "3;0"; break;
+            case 0x0011u: val = "2"; numVal = 2u; break;
+            case 0x0012u: val = "1"; numVal = 1u; break;
+            case 0x0013u: val = "0123456789"; break;
+            case 0x0014u: val = "$"; break;
+            case 0x0015u: val = "USD"; break;
+            case 0x0016u: val = "."; break;
+            case 0x0017u: val = ","; break;
+            case 0x0018u: val = "3;0"; break;
+            case 0x0019u: val = "2"; numVal = 2u; break;
+            case 0x001Du: val = "/"; break;
+            case 0x001Eu: val = ":"; break;
+            case 0x001Fu: val = "M/d/yyyy"; break;
+            case 0x0020u: val = "dddd, MMMM dd, yyyy"; break;
+            case 0x0023u: val = "0"; numVal = 0u; break;
+            case 0x0028u: val = "AM"; break;
+            case 0x0029u: val = "PM"; break;
+            case 0x0059u: val = "en"; break;
+            case 0x005Au: val = "US"; break;
+            case 0x1001u: val = "English"; break;
+            case 0x1002u: val = "United States"; break;
+            case 0x1003u: val = "h:mm:ss tt"; break;
+            case 0x1004u: val = "437"; numVal = 437u; break;
+            default:      val = "en-US"; break;
+        }
+
+        uint32_t retVal = 0u;
+        if (retNum) {
+            uint32_t needed = isWide ? 2u : 4u;
+            if (cchData == 0u) {
+                retVal = needed;
+                m_lastError = 0u;
+            } else if (pData != 0u && cchData >= needed) {
+                cpu->writeGuestMemory(pData, &numVal, 4);
+                retVal = needed;
+                m_lastError = 0u;
+            } else {
+                retVal = 0u;
+                m_lastError = 122u;
+            }
+        } else {
+            uint32_t needed = static_cast<uint32_t>(val.size() + 1u);
+            if (cchData == 0u) {
+                retVal = needed;
+                m_lastError = 0u;
+            } else if (pData != 0u && cchData >= needed) {
+                if (isWide) {
+                    std::vector<uint16_t> wbuf(needed, 0u);
+                    for (size_t i = 0; i < val.size(); ++i) {
+                        wbuf[i] = static_cast<uint8_t>(val[i]);
+                    }
+                    cpu->writeGuestMemory(pData, wbuf.data(), needed * 2u);
+                } else {
+                    cpu->writeGuestMemory(pData, val.c_str(), needed);
+                }
+                retVal = needed;
+                m_lastError = 0u;
+            } else {
+                retVal = 0u;
+                m_lastError = 122u;
+            }
+        }
+
+        cpu->writeRegister(X86Reg::EAX, retVal);
+        cpu->writeRegister(X86Reg::ESP, esp + 20);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
     if (sym == "user32.dll!EnumDisplayDevicesA" || sym == "dynamic!EnumDisplayDevicesA") {
         uint32_t lpDev = 0u, iDevNum = 0u, lpDD = 0u;
         cpu->readGuestMemory(esp + 4,  &lpDev,   4);
