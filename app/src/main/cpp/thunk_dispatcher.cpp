@@ -1,4 +1,7 @@
 #include <sys/stat.h>
+#include <dirent.h>
+#include <vector>
+#include <cstring>
 #include <cstdio>
 #include "thunk_dispatcher.h"
 #include <cmath>
@@ -8,6 +11,80 @@
 #include <time.h>
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "SH3_DISPATCH", __VA_ARGS__)
+
+#pragma pack(push, 1)
+struct Sh3Win32FileTime {
+    uint32_t dwLowDateTime;
+    uint32_t dwHighDateTime;
+};
+
+struct Sh3Win32FindDataA {
+    uint32_t         dwFileAttributes;
+    Sh3Win32FileTime ftCreationTime;
+    Sh3Win32FileTime ftLastAccessTime;
+    Sh3Win32FileTime ftLastWriteTime;
+    uint32_t         nFileSizeHigh;
+    uint32_t         nFileSizeLow;
+    uint32_t         dwReserved0;
+    uint32_t         dwReserved1;
+    char             cFileName[260];
+    char             cAlternateFileName[14];
+    uint8_t          _pad[2];
+};
+#pragma pack(pop)
+
+static_assert(sizeof(Sh3Win32FindDataA) == 320, "WIN32_FIND_DATAA must be 320 bytes");
+
+struct Sh3FindSearchState {
+    std::vector<Sh3Win32FindDataA> entries;
+    size_t index = 0;
+};
+
+static std::unordered_map<uint32_t, Sh3FindSearchState> s_findHandles;
+static uint32_t s_nextFindHandle = 0x5F000001u;
+
+static std::string sh3ReadGuestCStr(IX86CPU* cpu, uint32_t addr, size_t maxLen = 512) {
+    std::string out;
+    if (addr == 0u) return out;
+    for (size_t i = 0; i < maxLen; ++i) {
+        char ch = 0;
+        cpu->readGuestMemory(addr + static_cast<uint32_t>(i), &ch, 1);
+        if (ch == '\0') break;
+        out.push_back(ch);
+    }
+    return out;
+}
+
+static Sh3Win32FileTime sh3UnixToFileTime(time_t t) {
+    uint64_t ft = (static_cast<uint64_t>(t) + 11644473600ULL) * 10000000ULL;
+    return {
+        static_cast<uint32_t>(ft & 0xFFFFFFFFULL),
+        static_cast<uint32_t>(ft >> 32)
+    };
+}
+
+static bool sh3WildcardMatchCI(const char* pat, const char* str) {
+    const char* star = nullptr;
+    const char* ss = str;
+    while (*str) {
+        char pc = (*pat >= 'A' && *pat <= 'Z') ? static_cast<char>(*pat + 32) : *pat;
+        char sc = (*str >= 'A' && *str <= 'Z') ? static_cast<char>(*str + 32) : *str;
+        if (*pat == '?' || pc == sc) {
+            ++pat;
+            ++str;
+        } else if (*pat == '*') {
+            star = pat++;
+            ss = str;
+        } else if (star) {
+            pat = star + 1;
+            str = ++ss;
+        } else {
+            return false;
+        }
+    }
+    while (*pat == '*') ++pat;
+    return *pat == '\0';
+}
 
 void ThunkDispatcher::buildReverseMap(const std::unordered_map<std::string, uint32_t>& forwardThunkTable) {
     m_reverseMap.clear();
@@ -1494,6 +1571,184 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         cpu->readGuestMemory(esp + 4, &errCode, 4);
         m_lastError = errCode;
         cpu->writeRegister(X86Reg::ESP, esp + 8); // stdcall: retAddr + 1 arg
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!FindFirstFileA") {
+        uint32_t pFileName = 0u, pFindData = 0u;
+        cpu->readGuestMemory(esp + 4, &pFileName, 4);
+        cpu->readGuestMemory(esp + 8, &pFindData, 4);
+
+        const uint32_t kInvalidHandle = 0xFFFFFFFFu;
+        std::string rawPath = sh3ReadGuestCStr(cpu, pFileName);
+        if (rawPath.empty() || pFindData == 0u) {
+            m_lastError = 3u;
+            cpu->writeRegister(X86Reg::EAX, kInvalidHandle);
+            cpu->writeRegister(X86Reg::ESP, esp + 12);
+            outNextEip = returnAddr;
+            logSym(sym + "('')->INVALID");
+            return true;
+        }
+
+        std::string norm = rawPath;
+        for (char& c : norm) {
+            if (c == '\\') c = '/';
+        }
+        if (norm.size() >= 2 && norm[1] == ':') {
+            norm = norm.substr(2);
+            while (!norm.empty() && norm.front() == '/') norm.erase(norm.begin());
+        }
+
+        std::string relDir;
+        std::string pattern;
+        size_t slash = norm.find_last_of('/');
+        if (slash == std::string::npos) {
+            relDir = ".";
+            pattern = norm;
+        } else {
+            relDir = (slash == 0) ? "/" : norm.substr(0, slash);
+            pattern = norm.substr(slash + 1);
+        }
+
+        if (pattern == "*.*" || pattern.empty()) {
+            pattern = "*";
+        }
+
+        std::string resolvedDir = relDir;
+        DIR* dir = opendir(resolvedDir.c_str());
+        if (!dir && !relDir.empty() && relDir[0] != '/' && relDir != ".") {
+            resolvedDir = "../" + relDir;
+            dir = opendir(resolvedDir.c_str());
+        }
+        if (!dir && !relDir.empty() && relDir[0] != '/' && relDir != ".") {
+            resolvedDir = "../../" + relDir;
+            dir = opendir(resolvedDir.c_str());
+        }
+
+        if (!dir) {
+            m_lastError = 3u;
+            cpu->writeRegister(X86Reg::EAX, kInvalidHandle);
+            cpu->writeRegister(X86Reg::ESP, esp + 12);
+            outNextEip = returnAddr;
+            logSym(sym + "('" + rawPath + "')->INVALID_DIR");
+            return true;
+        }
+
+        Sh3FindSearchState state;
+        struct dirent* ent = nullptr;
+        while ((ent = readdir(dir)) != nullptr) {
+            const char* name = ent->d_name;
+            if (!sh3WildcardMatchCI(pattern.c_str(), name)) {
+                continue;
+            }
+
+            std::string fullPath = resolvedDir + "/" + name;
+            struct stat st{};
+            if (stat(fullPath.c_str(), &st) != 0) {
+                continue;
+            }
+
+            Sh3Win32FindDataA data{};
+            if (S_ISDIR(st.st_mode)) {
+                data.dwFileAttributes = 0x10u;
+            } else {
+                data.dwFileAttributes = 0x80u;
+                uint64_t fsize = static_cast<uint64_t>(st.st_size);
+                data.nFileSizeHigh = static_cast<uint32_t>(fsize >> 32);
+                data.nFileSizeLow  = static_cast<uint32_t>(fsize & 0xFFFFFFFFULL);
+            }
+
+            data.ftCreationTime   = sh3UnixToFileTime(st.st_ctime);
+            data.ftLastAccessTime = sh3UnixToFileTime(st.st_atime);
+            data.ftLastWriteTime  = sh3UnixToFileTime(st.st_mtime);
+
+            std::strncpy(data.cFileName, name, sizeof(data.cFileName) - 1);
+            data.cFileName[sizeof(data.cFileName) - 1] = '\0';
+
+            state.entries.push_back(data);
+        }
+        closedir(dir);
+
+        if (state.entries.empty()) {
+            m_lastError = 2u;
+            cpu->writeRegister(X86Reg::EAX, kInvalidHandle);
+            cpu->writeRegister(X86Reg::ESP, esp + 12);
+            outNextEip = returnAddr;
+            logSym(sym + "('" + rawPath + "')->EMPTY");
+            return true;
+        }
+
+        size_t totalMatches = state.entries.size();
+        cpu->writeGuestMemory(pFindData, &state.entries[0], sizeof(Sh3Win32FindDataA));
+        state.index = 1;
+
+        uint32_t handle = s_nextFindHandle++;
+        s_findHandles[handle] = std::move(state);
+
+        m_lastError = 0u;
+        cpu->writeRegister(X86Reg::EAX, handle);
+        cpu->writeRegister(X86Reg::ESP, esp + 12);
+        outNextEip = returnAddr;
+        logSym(sym + "('" + rawPath + "')->" + std::to_string(totalMatches));
+        return true;
+    }
+
+    if (sym == "kernel32.dll!FindNextFileA") {
+        uint32_t handle = 0u, pFindData = 0u;
+        cpu->readGuestMemory(esp + 4, &handle, 4);
+        cpu->readGuestMemory(esp + 8, &pFindData, 4);
+
+        auto it = s_findHandles.find(handle);
+        if (it == s_findHandles.end() || pFindData == 0u) {
+            m_lastError = 6u;
+            cpu->writeRegister(X86Reg::EAX, 0u);
+            cpu->writeRegister(X86Reg::ESP, esp + 12);
+            outNextEip = returnAddr;
+            logSym(sym);
+            return true;
+        }
+
+        auto& state = it->second;
+        if (state.index >= state.entries.size()) {
+            m_lastError = 18u;
+            cpu->writeRegister(X86Reg::EAX, 0u);
+            cpu->writeRegister(X86Reg::ESP, esp + 12);
+            outNextEip = returnAddr;
+            logSym(sym);
+            return true;
+        }
+
+        cpu->writeGuestMemory(pFindData, &state.entries[state.index], sizeof(Sh3Win32FindDataA));
+        state.index++;
+
+        m_lastError = 0u;
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 12);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
+    if (sym == "kernel32.dll!FindClose") {
+        uint32_t handle = 0u;
+        cpu->readGuestMemory(esp + 4, &handle, 4);
+
+        auto it = s_findHandles.find(handle);
+        if (it == s_findHandles.end()) {
+            m_lastError = 6u;
+            cpu->writeRegister(X86Reg::EAX, 0u);
+            cpu->writeRegister(X86Reg::ESP, esp + 8);
+            outNextEip = returnAddr;
+            logSym(sym);
+            return true;
+        }
+
+        s_findHandles.erase(it);
+        m_lastError = 0u;
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 8);
         outNextEip = returnAddr;
         logSym(sym);
         return true;
