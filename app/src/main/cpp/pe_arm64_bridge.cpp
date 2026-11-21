@@ -522,8 +522,8 @@ static std::string runStage5BootstrapProbe() {
             return dispatcher.onThunkTrap(thunkAddr, retAddr);
         });
 
-    uint32_t totalSteps = 0;
-    const uint32_t maxTotalSteps = 2000000000u;
+    uint64_t totalSteps = 0;
+    const uint64_t maxTotalSteps = 20000000000ULL;
     X86StepResult stepRes{};
     bool dllAbort = false;
     {
@@ -587,19 +587,19 @@ static std::string runStage5BootstrapProbe() {
     uint32_t hleExecCount = 0;
     uint32_t lastHleAddr = 0, lastHleRet = 0;
     if (!dllAbort)
-    for (int iter = 0; iter < 20000000 && totalSteps < maxTotalSteps; ++iter) {
+    for (int iter = 0; iter < 100000000 && totalSteps < maxTotalSteps; ++iter) {
         if ((iter & 4095) == 4095) {
             auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - loopStart).count();
-            if (elapsedMs >= 180000) {
-                stepRes.reason = "WATCHDOG_TIMEOUT_180S";
+            if (elapsedMs >= 300000) {
+                stepRes.reason = "WATCHDOG_TIMEOUT_300S";
                 stepRes.haltedOnThunk = false;
                 stepRes.stopAddress = currentEip;
                 break;
             }
         }
-        uint32_t rem = maxTotalSteps - totalSteps;
-        uint32_t slice = (rem > 500000u) ? 500000u : rem;
+        uint64_t rem = maxTotalSteps - totalSteps;
+        uint32_t slice = (rem > 4000000u) ? 4000000u : static_cast<uint32_t>(rem);
         stepRes = cpu->stepInstructions(currentEip, slice);
         totalSteps += stepRes.stepsExecuted;
         if (stepRes.haltedOnThunk) {
@@ -617,8 +617,8 @@ static std::string runStage5BootstrapProbe() {
             currentEip = cpu->readRegister(X86Reg::EIP);
             auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - loopStart).count();
-            if (elapsedMs >= 180000) {
-                stepRes.reason = "WATCHDOG_TIMEOUT_180S";
+            if (elapsedMs >= 300000) {
+                stepRes.reason = "WATCHDOG_TIMEOUT_300S";
                 stepRes.stopAddress = currentEip;
                 break;
             }
@@ -629,8 +629,8 @@ static std::string runStage5BootstrapProbe() {
 
     char sbuf[256];
     snprintf(sbuf, sizeof(sbuf),
-             "Stage 6-A Loop: %s | TotalSteps: %u | HLE Calls: %zu | StopEIP: 0x%08X\n",
-             stepRes.reason.c_str(), totalSteps, dispatcher.handledLog().size(), stepRes.stopAddress);
+             "Stage 6-A Loop: %s | TotalSteps: %llu | HLE Calls: %zu | StopEIP: 0x%08X\n",
+             stepRes.reason.c_str(), static_cast<unsigned long long>(totalSteps), dispatcher.handledLog().size(), stepRes.stopAddress);
     out << sbuf;
 
     if (!dispatcher.d3dTrace().empty()) {
@@ -640,7 +640,7 @@ static std::string runStage5BootstrapProbe() {
     if (!dispatcher.lastMsgBox().empty()) {
         out << "[LAST MSGBOX] " << dispatcher.lastMsgBox() << "\n";
     }
-    if (stepRes.reason == "WATCHDOG_TIMEOUT_180S") {
+    if (stepRes.reason == "WATCHDOG_TIMEOUT_300S") {
         snprintf(sbuf, sizeof(sbuf),
                  "[WATCHDOG] RealHLE=%u | LastHLE=0x%08X (%s) | LastRet=0x%08X | EAX=0x%08X ESP=0x%08X\n",
                  hleExecCount, lastHleAddr, dispatcher.lastTrappedSymbol().c_str(), lastHleRet,
