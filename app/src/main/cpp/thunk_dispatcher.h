@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <set>
+#include <map>
 #include "i_x86_cpu.h"
 
 #include "d3d9_guest_bridge.h"
@@ -140,9 +142,10 @@ private:
     uint32_t    m_nextTlsIndex   = 1u;
     std::unordered_map<uint32_t, uint32_t> m_tlsSlots;
     uint32_t    m_heapCursor = 0x20000000u;
-    uint32_t    m_heapEnd    = 0x30000000u;
+    uint32_t    m_heapEnd    = 0x50000000u;
     std::unordered_map<uint32_t, uint32_t> m_allocSizes;
-    std::unordered_map<uint32_t, std::vector<uint32_t>> m_freeBins;
+    std::map<uint32_t, uint32_t> m_freeByAddr;
+    std::set<std::pair<uint32_t, uint32_t>> m_freeBySize;
     uint32_t    m_oomCount   = 0;
 
     std::string m_lastMsgBox;
@@ -190,15 +193,24 @@ private:
 
     uint32_t allocGuest(uint32_t size) {
         if (size == 0) size = 16;
+        if (size > 0x2F000000u) return 0u;
         uint32_t aligned = (size + 15u) & ~15u;
-        auto bit = m_freeBins.find(aligned);
-        if (bit != m_freeBins.end() && !bit->second.empty()) {
-            uint32_t ptr = bit->second.back();
-            bit->second.pop_back();
+        auto sit = m_freeBySize.lower_bound({aligned, 0u});
+        if (sit != m_freeBySize.end()) {
+            uint32_t blkSize = sit->first;
+            uint32_t ptr     = sit->second;
+            m_freeBySize.erase(sit);
+            m_freeByAddr.erase(ptr);
+            if (blkSize > aligned) {
+                uint32_t remAddr = ptr + aligned;
+                uint32_t remSize = blkSize - aligned;
+                m_freeByAddr[remAddr] = remSize;
+                m_freeBySize.insert({remSize, remAddr});
+            }
             m_allocSizes[ptr] = size;
             return ptr;
         }
-        if (m_heapCursor + aligned > m_heapEnd) {
+        if (aligned > (m_heapEnd - m_heapCursor)) {
             if (++m_oomCount <= 5) {
                 char oom[96];
                 snprintf(oom, sizeof(oom), "HEAP_OOM(req=%u, used=%uMB)", size, (m_heapCursor - 0x20000000u) >> 20);
@@ -218,7 +230,28 @@ private:
         if (it == m_allocSizes.end()) return;
         uint32_t aligned = (it->second + 15u) & ~15u;
         m_allocSizes.erase(it);
-        m_freeBins[aligned].push_back(ptr);
+
+        auto nextIt = m_freeByAddr.lower_bound(ptr);
+        if (nextIt != m_freeByAddr.end() && ptr + aligned == nextIt->first) {
+            m_freeBySize.erase({nextIt->second, nextIt->first});
+            aligned += nextIt->second;
+            nextIt = m_freeByAddr.erase(nextIt);
+        }
+        if (nextIt != m_freeByAddr.begin()) {
+            auto prevIt = std::prev(nextIt);
+            if (prevIt->first + prevIt->second == ptr) {
+                m_freeBySize.erase({prevIt->second, prevIt->first});
+                ptr = prevIt->first;
+                aligned += prevIt->second;
+                m_freeByAddr.erase(prevIt);
+            }
+        }
+        if (ptr + aligned == m_heapCursor) {
+            m_heapCursor = ptr;
+        } else {
+            m_freeByAddr[ptr] = aligned;
+            m_freeBySize.insert({aligned, ptr});
+        }
     }
 };
 

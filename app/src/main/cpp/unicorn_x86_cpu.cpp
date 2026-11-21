@@ -39,7 +39,7 @@ public:
             m_thunkDataPage = nullptr;
         }
         if (m_guestHeapPage) {
-            munmap(m_guestHeapPage, 256 * 1024 * 1024);
+            munmap(m_guestHeapPage, 768 * 1024 * 1024);
             m_guestHeapPage = nullptr;
         }
     }
@@ -111,14 +111,14 @@ public:
             return false;
         }
         if (!m_guestHeapPage) {
-            m_guestHeapPage = (uint8_t*)mmap(nullptr, 256 * 1024 * 1024, PROT_READ | PROT_WRITE,
+            m_guestHeapPage = (uint8_t*)mmap(nullptr, 768 * 1024 * 1024, PROT_READ | PROT_WRITE,
                                              MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
             if (m_guestHeapPage == MAP_FAILED) {
                 m_guestHeapPage = nullptr;
                 return false;
             }
         }
-        err = uc_mem_map_ptr(m_uc, 0x20000000u, 256 * 1024 * 1024, UC_PROT_READ | UC_PROT_WRITE, m_guestHeapPage);
+        err = uc_mem_map_ptr(m_uc, 0x20000000u, 768 * 1024 * 1024, UC_PROT_READ | UC_PROT_WRITE, m_guestHeapPage);
         if (err != UC_ERR_OK) {
             LOGE("Guest Heap map failed: %s", uc_strerror(err));
             return false;
