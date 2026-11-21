@@ -6473,6 +6473,14 @@ bool ThunkDispatcher::handleThunkCall(IX86CPU* cpu, uint32_t thunkAddr, uint32_t
         return true;
     }
 
+    if (sym == "user32.dll!RedrawWindow") {
+        cpu->writeRegister(X86Reg::EAX, 1u);
+        cpu->writeRegister(X86Reg::ESP, esp + 20u);
+        outNextEip = returnAddr;
+        logSym(sym);
+        return true;
+    }
+
     if (sym == "gdi32.dll!GetDeviceCaps") {
         int32_t idx = 0;
         cpu->readGuestMemory(esp + 8, &idx, 4);
